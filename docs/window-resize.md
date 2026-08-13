@@ -10,4 +10,6 @@ The surface uses `AutoNoVsync` with one-frame maximum latency. This configuratio
 
 Normal interactive resizing may produce a stream of size events. Mio-GUI handles each supplied size and schedules a redraw without blocking the event handler on presentation.
 
+Surface creation and reconfiguration schedule three frames. This replaces provisional drawables observed during macOS startup and resize without entering a continuous redraw loop.
+
 Resize diagnostics can be enabled with `MIO_GUI_DIAGNOSTICS=1`. They record resize events, surface configuration, acquired texture dimensions, and presentation timing.
