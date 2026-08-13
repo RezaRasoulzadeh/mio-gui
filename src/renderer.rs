@@ -571,30 +571,82 @@ impl Renderer {
 
     fn rebuild_demo_text(&mut self) {
         let scale_factor = self.scale_factor;
-        let line =
-            self.text_system
-                .shape_line("Mio-GUI  |  رابط کاربری راست‌به‌چپ و چپ‌به‌راست", 24.0, 34.0);
-        let line_start = (self.config.width as f32 - line.width * scale_factor) * 0.5;
-        let baseline = self.config.height as f32 * 0.5;
-        let mut quads = Vec::with_capacity(line.glyphs.len());
-        for glyph in &line.glyphs {
-            let Some(image) = self.text_system.rasterize_glyph(glyph, scale_factor) else {
-                continue;
-            };
-            let Some(atlas) = self.upload_rasterized_glyph(glyph, scale_factor, &image) else {
-                continue;
-            };
-            quads.push(GlyphQuad {
-                position: [
-                    line_start + glyph.x * scale_factor + image.left as f32,
-                    baseline - image.top as f32,
-                ],
-                size: [image.width as f32, image.height as f32],
-                atlas,
-                color: [0.08, 0.07, 0.05, 1.0],
-            });
+        let samples = [
+            ("رابط کاربری راست‌به‌چپ", -38.0),
+            ("Mio-GUI left-to-right", 0.0),
+            ("نسخه Mio-GUI 2", 38.0),
+        ];
+        let mut quads = Vec::new();
+        for (text, baseline_offset) in samples {
+            let line = self.text_system.shape_line(text, 20.0, 28.0);
+            let glyph_count = line.glyphs.len();
+            let line_start = (self.config.width as f32 - line.width * scale_factor) * 0.5;
+            let baseline = self.config.height as f32 * 0.5 + baseline_offset * scale_factor;
+            let quads_before = quads.len();
+            for glyph in &line.glyphs {
+                let Some(image) = self.text_system.rasterize_glyph(glyph, scale_factor) else {
+                    continue;
+                };
+                let Some(atlas) = self.upload_rasterized_glyph(glyph, scale_factor, &image) else {
+                    continue;
+                };
+                quads.push(GlyphQuad {
+                    position: [
+                        line_start + glyph.x * scale_factor + image.left as f32,
+                        baseline - image.top as f32,
+                    ],
+                    size: [image.width as f32, image.height as f32],
+                    atlas,
+                    color: [0.08, 0.07, 0.05, 1.0],
+                });
+            }
+            if self.diagnostics {
+                let prepared = &quads[quads_before..];
+                let bounds = prepared.iter().fold(
+                    [
+                        f32::INFINITY,
+                        f32::INFINITY,
+                        f32::NEG_INFINITY,
+                        f32::NEG_INFINITY,
+                    ],
+                    |bounds, quad| {
+                        [
+                            bounds[0].min(quad.position[0]),
+                            bounds[1].min(quad.position[1]),
+                            bounds[2].max(quad.position[0] + quad.size[0]),
+                            bounds[3].max(quad.position[1] + quad.size[1]),
+                        ]
+                    },
+                );
+                let atlas_bounds =
+                    prepared
+                        .iter()
+                        .fold([u32::MAX, u32::MAX, 0, 0], |bounds, quad| {
+                            [
+                                bounds[0].min(quad.atlas.x),
+                                bounds[1].min(quad.atlas.y),
+                                bounds[2].max(quad.atlas.x + quad.atlas.width),
+                                bounds[3].max(quad.atlas.y + quad.atlas.height),
+                            ]
+                        });
+                eprintln!(
+                    "text_prepared text={text:?} shaped_glyphs={glyph_count} prepared_quads={} bounds={bounds:?} atlas_bounds={atlas_bounds:?}",
+                    quads.len() - quads_before,
+                );
+            }
         }
-        self.set_glyph_quads(&quads);
+        let submitted = self.set_glyph_quads(&quads);
+        if self.diagnostics {
+            eprintln!(
+                "text_submitted quads={} submitted={submitted} generation={:?}",
+                quads.len(),
+                self.glyph_generation,
+            );
+        }
+        assert!(
+            submitted,
+            "demo text contains incompatible atlas generations"
+        );
     }
 
     pub fn render(&mut self) -> Result<(), RenderError> {

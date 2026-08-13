@@ -1,0 +1,17 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
+     Running `target/debug/mio-gui`
+text_prepared text="رابط کاربری راست\u{200c}به\u{200c}چپ" shaped_glyphs=22 prepared_quads=18 bounds=[4221.5615, 248.0, 4404.675, 269.0] atlas_bounds=[1, 1, 202, 16]
+text_prepared text="Mio-GUI left-to-right" shaped_glyphs=21 prepared_quads=20 bounds=[307.87012, 284.0, 493.5869, 305.0] atlas_bounds=[204, 1, 374, 17]
+text_prepared text="نسخه Mio-GUI 2" shaped_glyphs=14 prepared_quads=12 bounds=[4281.507, 323.0, 4423.466, 339.0] atlas_bounds=[376, 1, 521, 17]
+text_submitted quads=50 submitted=true generation=Some(0)
+text_prepared text="رابط کاربری راست\u{200c}به\u{200c}چپ" shaped_glyphs=22 prepared_quads=18 bounds=[4221.5615, 248.0, 4404.675, 269.0] atlas_bounds=[1, 1, 202, 16]
+text_prepared text="Mio-GUI left-to-right" shaped_glyphs=21 prepared_quads=20 bounds=[307.87012, 284.0, 493.5869, 305.0] atlas_bounds=[204, 1, 374, 17]
+text_prepared text="نسخه Mio-GUI 2" shaped_glyphs=14 prepared_quads=12 bounds=[4281.507, 323.0, 4423.466, 339.0] atlas_bounds=[376, 1, 521, 17]
+text_submitted quads=50 submitted=true generation=Some(0)
+resize_event t_us=36068 event=800x600 configured=800x600 scale=1
+frame_acquired t_us=36120 configured=800x600 texture=800x600
+frame_presented t_us=37858 configured=800x600
+frame_acquired t_us=47862 configured=800x600 texture=800x600
+frame_presented t_us=48950 configured=800x600
+frame_acquired t_us=3686790 configured=800x600 texture=800x600
+frame_presented t_us=3687421 configured=800x600
