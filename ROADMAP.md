@@ -16,7 +16,7 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [ ] Logical properties are used internally: start/end, not left/right
 - [ ] Keyboard navigation, focus order, icons, and animations respect direction
 - [ ] Components are accessible, themeable, deterministic, and testable
-- [ ] Nexora's requirements drive scope before general framework features
+- [ ] BizTrace's requirements drive scope before general framework features
 - [ ] Each primitive has automated tests and explicit acceptance criteria
 - [ ] Only `TODO` and filename comments are used in source code
 
@@ -64,17 +64,17 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [x] Use derivative-based analytic antialiasing
 - [x] Pass position, size, radius, and color from Rust
 - [x] Clamp radius to half of the shortest side
-- [ ] Support independent corner radii
-- [ ] Support border width and border color
-- [ ] Support clipping without cutting off antialias coverage
+- [x] Support independent corner radii
+- [x] Support border width and border color
+- [x] Support clipping without cutting off antialias coverage
 - [x] Define behavior for zero size, subpixel size, and zero radius
 - [x] Define behavior for fractional position and fractional scale factors
-- [ ] Batch multiple rectangles in one render pass
+- [x] Batch multiple rectangles in one render pass
 
 ### Rounded rectangle tests
 
 - [x] Unit-test radius clamping and geometry calculations
-- [ ] Render golden images for zero, small, medium, maximum, and oversized radii
+- [x] Render golden images for zero, small, medium, maximum, and oversized radii
 - [x] Test square, wide, tall, tiny, and fractional-coordinate rectangles
 - [x] Test 1.0, 1.25, 1.5, 2.0, and 3.0 scale factors
 - [x] Verify horizontal and vertical symmetry pixel by pixel
@@ -303,11 +303,11 @@ For every widget:
 
 ### Gate
 
-- [ ] Only components required by Nexora are promoted to stable
+- [ ] Only components required by BizTrace are promoted to stable
 - [ ] Stable components satisfy the common per-widget checklist
 - [ ] The gallery documents supported variants without claiming full DaisyUI API compatibility
 
-## Phase 9 — Nexora business components
+## Phase 9 — BizTrace business components
 
 - [ ] Validated form and form section
 - [ ] Searchable and editable data table
@@ -323,7 +323,7 @@ For every widget:
 
 ### Gate
 
-- [ ] Build one real Nexora screen end to end in both RTL and LTR
+- [ ] Build one real BizTrace screen end to end in both RTL and LTR
 - [ ] Meet agreed frame-time, memory, accessibility, and interaction targets
 
 ## Phase 10 — Performance and reliability
@@ -347,14 +347,14 @@ For every widget:
 - [ ] Define semantic-versioning and deprecation policy
 - [ ] Audit licenses, fonts, and bundled assets
 - [ ] Package representative applications for Windows, Linux, and macOS
-- [ ] Publish only after Nexora validates the architecture in production-like use
+- [ ] Publish only after BizTrace validates the architecture in production-like use
 
 ## Current next actions
 
 - [x] Replace shader constants with a Rust-side rounded-rectangle instance
 - [x] Create a CPU reference rasterizer or mask generator for pixel comparisons
 - [x] Add offscreen GPU capture and readback infrastructure
-- [ ] Add golden-image capture and comparison infrastructure
+- [x] Add golden-image capture and comparison infrastructure
 - [ ] Test radius and antialiasing across sizes and scale factors
 - [ ] Confirm the primitive on Vulkan, Metal, and DX12
 - [ ] Mark Phase 1 complete before integrating text

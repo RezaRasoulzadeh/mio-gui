@@ -18,6 +18,12 @@ Layout rectangles are not reduced to fit the viewport. Geometry outside the view
 
 Negative width, height, and radius inputs are normalized to zero. A corner radius is limited to half of the rectangle's shortest side.
 
+Independent corner radii use the physical order top-left, top-right, bottom-right, bottom-left. The renderer is direction-neutral; higher layout and component layers resolve logical start/end corners into this physical order.
+
+When adjacent radii would overlap, all four radii are reduced by one common scale factor until every horizontal and vertical pair fits its side. Preserving their proportions prevents abrupt changes between differently rounded corners.
+
+Borders are drawn inward from the rectangle's outer boundary and do not affect layout size or outer corner geometry. Negative border widths become zero. Border width is limited to half of the shortest side; at that limit the border consumes the entire interior.
+
 ## Rasterization
 
 The rounded-rectangle distance field describes the exact requested physical size. Antialias coverage must not reduce that size.

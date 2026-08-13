@@ -1,17 +1,23 @@
 // raster.rs
 
 #[derive(Clone, Copy)]
+#[cfg(test)]
 pub struct RoundedRectMask {
     size: [f32; 2],
-    radius: f32,
+    radii: [f32; 4],
 }
 
+#[cfg(test)]
 impl RoundedRectMask {
     pub fn new(size: [f32; 2], radius: f32) -> Self {
-        let size = [size[0].max(0.0), size[1].max(0.0)];
-        let radius = radius.max(0.0).min(size[0].min(size[1]) * 0.5);
+        Self::with_radii(size, [radius; 4])
+    }
 
-        Self { size, radius }
+    pub fn with_radii(size: [f32; 2], radii: [f32; 4]) -> Self {
+        let size = [size[0].max(0.0), size[1].max(0.0)];
+        let radii = normalize_corner_radii(size, radii);
+
+        Self { size, radii }
     }
 
     pub fn size(self) -> [f32; 2] {
@@ -19,19 +25,29 @@ impl RoundedRectMask {
     }
 
     pub fn radius(self) -> f32 {
-        self.radius
+        self.radii[0]
+    }
+
+    pub fn radii(self) -> [f32; 4] {
+        self.radii
     }
 
     pub fn signed_distance(self, point: [f32; 2]) -> f32 {
         let half_size = [self.size[0] * 0.5, self.size[1] * 0.5];
         let centered = [point[0] - half_size[0], point[1] - half_size[1]];
+        let radius = match (centered[0] > 0.0, centered[1] > 0.0) {
+            (false, false) => self.radii[0],
+            (true, false) => self.radii[1],
+            (true, true) => self.radii[2],
+            (false, true) => self.radii[3],
+        };
         let q = [
-            centered[0].abs() - half_size[0] + self.radius,
-            centered[1].abs() - half_size[1] + self.radius,
+            centered[0].abs() - half_size[0] + radius,
+            centered[1].abs() - half_size[1] + radius,
         ];
         let outside = [q[0].max(0.0), q[1].max(0.0)];
 
-        outside[0].hypot(outside[1]) + q[0].max(q[1]).min(0.0) - self.radius
+        outside[0].hypot(outside[1]) + q[0].max(q[1]).min(0.0) - radius
     }
 
     pub fn coverage(self, pixel: [u32; 2], samples_per_axis: u32) -> f32 {
@@ -81,8 +97,31 @@ impl RoundedRectMask {
     }
 }
 
+pub fn normalize_corner_radii(size: [f32; 2], radii: [f32; 4]) -> [f32; 4] {
+    let size = [size[0].max(0.0), size[1].max(0.0)];
+    let radii = radii.map(|radius| radius.max(0.0));
+    let ratios = [
+        side_ratio(size[0], radii[0] + radii[1]),
+        side_ratio(size[0], radii[3] + radii[2]),
+        side_ratio(size[1], radii[0] + radii[3]),
+        side_ratio(size[1], radii[1] + radii[2]),
+    ];
+    let scale = ratios.into_iter().fold(1.0_f32, f32::min);
+    radii.map(|radius| radius * scale)
+}
+
+fn side_ratio(length: f32, radius_sum: f32) -> f32 {
+    if radius_sum > 0.0 {
+        length / radius_sum
+    } else {
+        1.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::RoundedRectMask;
 
     fn assert_approximately_equal(left: f32, right: f32) {
@@ -180,5 +219,74 @@ mod tests {
             mask.coverage_at([2, 2], [2.5, 2.5], 8),
             mask.coverage_at([12, 2], [2.5, 2.5], 8),
         );
+    }
+
+    #[test]
+    fn preserves_independent_corner_radii() {
+        let mask = RoundedRectMask::with_radii([40.0, 20.0], [2.0, 5.0, 8.0, 0.0]);
+
+        assert_eq!(mask.radii(), [2.0, 5.0, 8.0, 0.0]);
+        assert_ne!(
+            mask.signed_distance([0.5, 0.5]),
+            mask.signed_distance([39.5, 0.5]),
+        );
+    }
+
+    #[test]
+    fn proportionally_clamps_overlapping_corner_radii() {
+        let mask = RoundedRectMask::with_radii([40.0, 20.0], [20.0, 30.0, 10.0, 10.0]);
+
+        assert_eq!(mask.radii(), [10.0, 15.0, 5.0, 5.0]);
+    }
+
+    fn pgm(mask: &[f32], dimensions: [u32; 2]) -> String {
+        let mut output = format!("P2\n{} {}\n255\n", dimensions[0], dimensions[1]);
+        for row in mask.chunks(dimensions[0] as usize) {
+            for (index, alpha) in row.iter().enumerate() {
+                if index > 0 {
+                    output.push(' ');
+                }
+                output.push_str(&(alpha * 255.0).round().to_string());
+            }
+            output.push('\n');
+        }
+        output
+    }
+
+    #[test]
+    fn rounded_rectangle_golden_images_match() {
+        let dimensions = [32, 16];
+        let cases = [
+            ("zero-radius.pgm", 0.0),
+            ("small-radius.pgm", 1.0),
+            ("medium-radius.pgm", 3.0),
+            ("maximum-radius.pgm", 6.0),
+            ("oversized-radius.pgm", 100.0),
+        ];
+        let directory = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/goldens");
+        let update = std::env::var_os("MIO_GUI_UPDATE_GOLDENS").is_some();
+
+        if update {
+            std::fs::create_dir_all(&directory).unwrap();
+        }
+
+        for (filename, radius) in cases {
+            let mask =
+                RoundedRectMask::new([24.0, 12.0], radius).rasterize_at(dimensions, [4.0, 2.0], 32);
+            let actual = pgm(&mask, dimensions);
+            let path = directory.join(filename);
+
+            if update {
+                std::fs::write(&path, &actual).unwrap();
+            }
+
+            let expected = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "{}: {error}; run MIO_GUI_UPDATE_GOLDENS=1 cargo test rounded_rectangle_golden_images_match",
+                    path.display(),
+                )
+            });
+            assert_eq!(actual, expected, "{}", path.display());
+        }
     }
 }

@@ -1,5 +1,4 @@
 // main.rs
-#[cfg(test)]
 mod raster;
 mod renderer;
 

@@ -1,8 +1,9 @@
 // renderer.rs
 use std::sync::Arc;
 use std::{error::Error, fmt};
-use wgpu::util::DeviceExt;
 use winit::window::Window;
+
+const MAX_RECTANGLES: usize = 1024;
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -25,9 +26,12 @@ struct RectUniform {
     position: [f32; 2],
     size: [f32; 2],
     viewport: [f32; 2],
-    radius: f32,
     antialias_padding: f32,
+    _padding: f32,
+    radii: [f32; 4],
     color: [f32; 4],
+    border_color: [f32; 4],
+    border: [f32; 4],
 }
 
 impl RectUniform {
@@ -38,20 +42,67 @@ impl RectUniform {
         logical_radius: f32,
         color: [f32; 4],
     ) -> Self {
+        Self::centered_with_radii(
+            viewport,
+            scale_factor,
+            logical_size,
+            [logical_radius; 4],
+            color,
+        )
+    }
+
+    fn centered_with_radii(
+        viewport: [f32; 2],
+        scale_factor: f32,
+        logical_size: [f32; 2],
+        logical_radii: [f32; 4],
+        color: [f32; 4],
+    ) -> Self {
+        Self::centered_with_style(
+            viewport,
+            scale_factor,
+            logical_size,
+            logical_radii,
+            color,
+            0.0,
+            [0.0; 4],
+        )
+    }
+
+    fn centered_with_style(
+        viewport: [f32; 2],
+        scale_factor: f32,
+        logical_size: [f32; 2],
+        logical_radii: [f32; 4],
+        color: [f32; 4],
+        logical_border_width: f32,
+        border_color: [f32; 4],
+    ) -> Self {
         let scale_factor = scale_factor.max(f32::EPSILON);
         let size = [
             logical_size[0].max(0.0) * scale_factor,
             logical_size[1].max(0.0) * scale_factor,
         ];
-        let radius = (logical_radius.max(0.0) * scale_factor).min(size[0].min(size[1]) * 0.5);
+        let radii = crate::raster::normalize_corner_radii(
+            size,
+            logical_radii.map(|radius| radius * scale_factor),
+        );
 
         Self {
             position: [(viewport[0] - size[0]) * 0.5, (viewport[1] - size[1]) * 0.5],
             size,
             viewport,
-            radius,
             antialias_padding: 2.0,
+            _padding: 0.0,
+            radii,
             color,
+            border_color,
+            border: [
+                (logical_border_width.max(0.0) * scale_factor).min(size[0].min(size[1]) * 0.5),
+                0.0,
+                0.0,
+                0.0,
+            ],
         }
     }
 }
@@ -65,6 +116,7 @@ pub struct Renderer {
     rect_uniform: RectUniform,
     rect_buffer: wgpu::Buffer,
     rect_bind_group: wgpu::BindGroup,
+    rectangle_count: u32,
     scale_factor: f32,
     diagnostics: bool,
     started_at: std::time::Instant,
@@ -124,11 +176,13 @@ impl Renderer {
             45.0,
             [0.913, 0.332, 0.003, 1.0],
         );
-        let rect_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        let rect_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rect_uniform"),
-            contents: bytemuck::bytes_of(&rect_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            size: (MAX_RECTANGLES * std::mem::size_of::<RectUniform>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        queue.write_buffer(&rect_buffer, 0, bytemuck::bytes_of(&rect_uniform));
         let rect_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("rect_bind_group_layout"),
@@ -136,7 +190,7 @@ impl Renderer {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
@@ -193,6 +247,7 @@ impl Renderer {
             rect_uniform,
             rect_buffer,
             rect_bind_group,
+            rectangle_count: 1,
             scale_factor: window.scale_factor() as f32,
             diagnostics: std::env::var_os("MIO_GUI_DIAGNOSTICS").is_some(),
             started_at: std::time::Instant::now(),
@@ -227,8 +282,7 @@ impl Renderer {
             45.0,
             [0.913, 0.332, 0.003, 1.0],
         );
-        self.queue
-            .write_buffer(&self.rect_buffer, 0, bytemuck::bytes_of(&self.rect_uniform));
+        self.upload_rectangles(&[self.rect_uniform]);
         if self.diagnostics {
             eprintln!(
                 "surface_configured t_us={} configured={}x{}",
@@ -248,8 +302,16 @@ impl Renderer {
             45.0,
             [0.913, 0.332, 0.003, 1.0],
         );
-        self.queue
-            .write_buffer(&self.rect_buffer, 0, bytemuck::bytes_of(&self.rect_uniform));
+        self.upload_rectangles(&[self.rect_uniform]);
+    }
+
+    fn upload_rectangles(&mut self, rectangles: &[RectUniform]) {
+        assert!(rectangles.len() <= MAX_RECTANGLES);
+        if !rectangles.is_empty() {
+            self.queue
+                .write_buffer(&self.rect_buffer, 0, bytemuck::cast_slice(rectangles));
+        }
+        self.rectangle_count = rectangles.len() as u32;
     }
 
     pub fn render(&mut self) -> Result<(), RenderError> {
@@ -318,7 +380,7 @@ impl Renderer {
 
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.rect_bind_group, &[]);
-            pass.draw(0..6, 0..1);
+            pass.draw(0..6, 0..self.rectangle_count);
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -340,11 +402,25 @@ impl Renderer {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::RectUniform;
     use crate::raster::RoundedRectMask;
     use wgpu::util::DeviceExt;
 
-    async fn render_alpha_mask(dimensions: [u32; 2], rect: RectUniform) -> Result<Vec<u8>, String> {
+    static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    async fn render_pixels(
+        dimensions: [u32; 2],
+        rect: RectUniform,
+    ) -> Result<Vec<[u8; 4]>, String> {
+        render_pixel_batch(dimensions, &[rect]).await
+    }
+
+    async fn render_pixel_batch(
+        dimensions: [u32; 2],
+        rectangles: &[RectUniform],
+    ) -> Result<Vec<[u8; 4]>, String> {
         let instance = wgpu::Instance::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -365,8 +441,8 @@ mod tests {
         });
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("rounded_rect_test_uniform"),
-            contents: bytemuck::bytes_of(&rect),
-            usage: wgpu::BufferUsages::UNIFORM,
+            contents: bytemuck::cast_slice(rectangles),
+            usage: wgpu::BufferUsages::STORAGE,
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("rounded_rect_test_bind_group_layout"),
@@ -374,7 +450,7 @@ mod tests {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
                     min_binding_size: None,
                 },
@@ -468,7 +544,7 @@ mod tests {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &bind_group, &[]);
-            pass.draw(0..6, 0..1);
+            pass.draw(0..6, 0..rectangles.len() as u32);
         }
         encoder.copy_texture_to_buffer(
             texture.as_image_copy(),
@@ -494,33 +570,33 @@ mod tests {
         let mapped = slice
             .get_mapped_range()
             .map_err(|error| error.to_string())?;
-        let mut alpha = Vec::with_capacity((dimensions[0] * dimensions[1]) as usize);
+        let mut pixels = Vec::with_capacity((dimensions[0] * dimensions[1]) as usize);
         for row in mapped.chunks(padded_bytes_per_row as usize) {
             for pixel in row[..unpadded_bytes_per_row as usize].chunks_exact(4) {
-                alpha.push(pixel[3]);
+                pixels.push(pixel.try_into().unwrap());
             }
         }
         drop(mapped);
         readback.unmap();
 
-        Ok(alpha)
+        Ok(pixels)
     }
 
     fn compare_gpu_to_cpu(
         dimensions: [u32; 2],
         logical_size: [f32; 2],
-        logical_radius: f32,
+        logical_radii: [f32; 4],
         scale_factor: f32,
     ) -> (f32, f32, u8) {
-        let rect = RectUniform::centered(
+        let rect = RectUniform::centered_with_radii(
             [dimensions[0] as f32, dimensions[1] as f32],
             scale_factor,
             logical_size,
-            logical_radius,
+            logical_radii,
             [1.0; 4],
         );
-        let gpu = pollster::block_on(render_alpha_mask(dimensions, rect)).unwrap();
-        let cpu = RoundedRectMask::new(rect.size, rect.radius).rasterize_at(
+        let gpu = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let cpu = RoundedRectMask::with_radii(rect.size, rect.radii).rasterize_at(
             dimensions,
             rect.position,
             32,
@@ -529,8 +605,8 @@ mod tests {
         let mut maximum_difference = 0.0_f32;
         let mut maximum_symmetry_difference = 0_u8;
 
-        for (gpu_alpha, cpu_alpha) in gpu.iter().zip(&cpu) {
-            let difference = (f32::from(*gpu_alpha) / 255.0 - cpu_alpha).abs();
+        for (gpu_pixel, cpu_alpha) in gpu.iter().zip(&cpu) {
+            let difference = (f32::from(gpu_pixel[3]) / 255.0 - cpu_alpha).abs();
             total_difference += difference;
             maximum_difference = maximum_difference.max(difference);
         }
@@ -541,8 +617,8 @@ mod tests {
                 let reflected_x = (y * dimensions[0] + dimensions[0] - x - 1) as usize;
                 let reflected_y = ((dimensions[1] - y - 1) * dimensions[0] + x) as usize;
                 maximum_symmetry_difference = maximum_symmetry_difference
-                    .max(gpu[index].abs_diff(gpu[reflected_x]))
-                    .max(gpu[index].abs_diff(gpu[reflected_y]));
+                    .max(gpu[index][3].abs_diff(gpu[reflected_x][3]))
+                    .max(gpu[index][3].abs_diff(gpu[reflected_y][3]));
             }
         }
 
@@ -556,7 +632,7 @@ mod tests {
 
     #[test]
     fn uniform_layout_has_expected_size() {
-        assert_eq!(std::mem::size_of::<RectUniform>(), 48);
+        assert_eq!(std::mem::size_of::<RectUniform>(), 96);
     }
 
     #[test]
@@ -571,7 +647,7 @@ mod tests {
     fn clamps_radius_to_half_of_shortest_side() {
         let rect = RectUniform::centered([800.0, 600.0], 1.0, [400.0, 180.0], 200.0, [1.0; 4]);
 
-        assert_eq!(rect.radius, 90.0);
+        assert_eq!(rect.radii, [90.0; 4]);
     }
 
     #[test]
@@ -580,7 +656,7 @@ mod tests {
 
         assert_eq!(rect.position, [-40.0, -30.0]);
         assert_eq!(rect.size, [400.0, 180.0]);
-        assert_eq!(rect.radius, 45.0);
+        assert_eq!(rect.radii, [45.0; 4]);
     }
 
     #[test]
@@ -589,7 +665,7 @@ mod tests {
 
         assert_eq!(rect.position, [400.0, 420.0]);
         assert_eq!(rect.size, [800.0, 360.0]);
-        assert_eq!(rect.radius, 90.0);
+        assert_eq!(rect.radii, [90.0; 4]);
     }
 
     #[test]
@@ -598,45 +674,144 @@ mod tests {
 
         assert_eq!(rect.position, [400.0, 300.0]);
         assert_eq!(rect.size, [0.0, 0.0]);
-        assert_eq!(rect.radius, 0.0);
+        assert_eq!(rect.radii, [0.0; 4]);
+    }
+
+    #[test]
+    fn proportionally_clamps_overlapping_corner_radii() {
+        let rect = RectUniform::centered_with_radii(
+            [100.0, 100.0],
+            1.0,
+            [40.0, 20.0],
+            [20.0, 30.0, 10.0, 10.0],
+            [1.0; 4],
+        );
+
+        assert_eq!(rect.radii, [10.0, 15.0, 5.0, 5.0]);
+    }
+
+    #[test]
+    fn clamps_border_width_to_half_of_shortest_side() {
+        let rect = RectUniform::centered_with_style(
+            [100.0, 100.0],
+            1.0,
+            [40.0, 20.0],
+            [4.0; 4],
+            [1.0; 4],
+            30.0,
+            [0.0; 4],
+        );
+
+        assert_eq!(rect.border[0], 10.0);
+    }
+
+    #[test]
+    fn gpu_renders_inward_border_and_fill_colors() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap();
+        let dimensions = [64, 32];
+        let rect = RectUniform::centered_with_style(
+            [dimensions[0] as f32, dimensions[1] as f32],
+            1.0,
+            [40.0, 20.0],
+            [5.0; 4],
+            [1.0, 0.0, 0.0, 1.0],
+            3.0,
+            [0.0, 1.0, 0.0, 1.0],
+        );
+        let pixels = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let pixel = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize];
+
+        assert_eq!(pixel(32, 16), [255, 0, 0, 255]);
+        assert_eq!(pixel(32, 7), [0, 255, 0, 255]);
+        assert_eq!(pixel(32, 5)[3], 0);
+    }
+
+    #[test]
+    fn gpu_batches_multiple_rectangles_in_one_draw_call() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap();
+        let dimensions = [64, 32];
+        let mut left = RectUniform::centered(
+            [dimensions[0] as f32, dimensions[1] as f32],
+            1.0,
+            [16.0, 16.0],
+            4.0,
+            [1.0, 0.0, 0.0, 1.0],
+        );
+        left.position = [6.0, 8.0];
+        let mut right = RectUniform::centered(
+            [dimensions[0] as f32, dimensions[1] as f32],
+            1.0,
+            [16.0, 16.0],
+            4.0,
+            [0.0, 0.0, 1.0, 1.0],
+        );
+        right.position = [42.0, 8.0];
+        let pixels = pollster::block_on(render_pixel_batch(dimensions, &[left, right])).unwrap();
+        let pixel = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize];
+
+        assert_eq!(pixel(14, 16), [255, 0, 0, 255]);
+        assert_eq!(pixel(50, 16), [0, 0, 255, 255]);
+        assert_eq!(pixel(32, 16), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn gpu_quad_preserves_antialias_coverage_outside_shape_boundary() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap();
+        let dimensions = [48, 32];
+        let mut rect = RectUniform::centered(
+            [dimensions[0] as f32, dimensions[1] as f32],
+            1.0,
+            [20.0, 12.0],
+            4.0,
+            [1.0; 4],
+        );
+        rect.position = [10.75, 10.0];
+        let pixels = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let alpha = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize][3];
+
+        assert_eq!(alpha(9, 16), 0);
+        assert!(alpha(10, 16) > 0 && alpha(10, 16) < 255);
+        assert_eq!(alpha(11, 16), 255);
     }
 
     #[test]
     fn gpu_coverage_matches_shape_radius_and_scale_matrices() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap();
         let mut worst_maximum = (0.0_f32, String::new());
         let mut worst_mean = (0.0_f32, String::new());
         let mut worst_symmetry = (0_u8, String::from("all cases"));
         let cases = [
-            ([0.0, 0.0], 0.0),
-            ([0.5, 0.5], 0.25),
-            ([32.0, 16.0], 0.0),
-            ([32.0, 16.0], 1.0),
-            ([32.0, 16.0], 4.0),
-            ([32.0, 16.0], 8.0),
-            ([32.0, 16.0], 100.0),
-            ([20.0, 20.0], 5.0),
-            ([40.0, 12.0], 3.0),
-            ([12.0, 28.0], 3.0),
-            ([2.0, 2.0], 1.0),
-            ([31.0, 15.0], 3.75),
+            ([0.0, 0.0], [0.0; 4]),
+            ([0.5, 0.5], [0.25; 4]),
+            ([32.0, 16.0], [0.0; 4]),
+            ([32.0, 16.0], [1.0; 4]),
+            ([32.0, 16.0], [4.0; 4]),
+            ([32.0, 16.0], [8.0; 4]),
+            ([32.0, 16.0], [100.0; 4]),
+            ([20.0, 20.0], [5.0; 4]),
+            ([40.0, 12.0], [3.0; 4]),
+            ([12.0, 28.0], [3.0; 4]),
+            ([2.0, 2.0], [1.0; 4]),
+            ([31.0, 15.0], [3.75; 4]),
+            ([40.0, 20.0], [2.0, 5.0, 8.0, 0.0]),
         ];
 
-        for (size, radius) in cases {
-            let metrics = compare_gpu_to_cpu([64, 32], size, radius, 1.0);
-            let label = format!("size={size:?} radius={radius} scale=1");
+        for (size, radii) in cases {
+            let metrics = compare_gpu_to_cpu([64, 32], size, radii, 1.0);
+            let label = format!("size={size:?} radii={radii:?} scale=1");
             if metrics.0 > worst_maximum.0 {
                 worst_maximum = (metrics.0, label.clone());
             }
             if metrics.1 > worst_mean.0 {
                 worst_mean = (metrics.1, label.clone());
             }
-            if metrics.2 > worst_symmetry.0 {
+            if radii.iter().all(|radius| *radius == radii[0]) && metrics.2 > worst_symmetry.0 {
                 worst_symmetry = (metrics.2, label);
             }
         }
 
         for scale_factor in [1.0, 1.25, 1.5, 2.0, 3.0] {
-            let metrics = compare_gpu_to_cpu([96, 48], [24.0, 12.0], 3.0, scale_factor);
+            let metrics = compare_gpu_to_cpu([96, 48], [24.0, 12.0], [3.0; 4], scale_factor);
             let label = format!("size=[24, 12] radius=3 scale={scale_factor}");
             if metrics.0 > worst_maximum.0 {
                 worst_maximum = (metrics.0, label.clone());
