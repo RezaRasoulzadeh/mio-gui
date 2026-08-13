@@ -16,20 +16,20 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [ ] Logical properties are used internally: start/end, not left/right
 - [ ] Keyboard navigation, focus order, icons, and animations respect direction
 - [ ] Components are accessible, themeable, deterministic, and testable
-- [ ] BizTrace's requirements drive scope before general framework features
+- [ ] Concrete application use cases drive scope before speculative framework features
 - [ ] Each primitive has automated tests and explicit acceptance criteria
 - [ ] Only `TODO` and filename comments are used in source code
 
 ## Phase 0 — Engineering baseline
 
-- [ ] Define the minimum supported Rust version
-- [ ] Pin dependency versions intentionally
-- [ ] Establish `cargo fmt` and `cargo clippy` checks
-- [ ] Establish unit, integration, render, and example test locations
-- [ ] Add CI for Linux, Windows, and macOS
-- [ ] Define supported GPU backends and fallback behavior
-- [ ] Define error-reporting and logging policy
-- [ ] Record architectural decisions in short decision documents
+- [x] Define the minimum supported Rust version
+- [x] Pin dependency versions intentionally
+- [x] Establish `cargo fmt` and `cargo clippy` checks
+- [x] Establish unit, integration, render, and example test locations
+- [x] Add CI for Linux, Windows, and macOS
+- [x] Define supported GPU backends and fallback behavior
+- [x] Define error-reporting and logging policy
+- [x] Record architectural decisions in short decision documents
 
 ### Gate
 
@@ -55,7 +55,7 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [x] Define rectangle containment and edge-inclusion rules
 - [x] Use linear color internally with explicit sRGB conversion boundaries
 - [x] Define alpha and compositing conventions
-- [ ] Confirm identical sizing after resize and DPI changes
+- [x] Confirm identical sizing after resize and DPI changes
 
 ### Rounded rectangle primitive
 
@@ -81,7 +81,7 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [x] Verify all four corners have identical alpha coverage
 - [x] Compare rendered boundaries against a CPU-generated reference mask
 - [x] Define an allowed per-channel pixel tolerance
-- [ ] Store renderer name and backend with golden-test results
+- [x] Store renderer name and backend with golden-test results
 - [ ] Check output on Vulkan, Metal, and DX12 before freezing the primitive
 
 ### Gate
@@ -95,13 +95,14 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 
 ### Font infrastructure
 
-- [ ] Integrate `cosmic-text`
-- [ ] Load bundled and system fonts
+- [x] Integrate `cosmic-text`
+- [x] Load bundled and system fonts
 - [ ] Implement deterministic fallback chains
-- [ ] Cache shaped runs and glyphs
+- [x] Cache shaped runs with bounded storage and font-change invalidation
+- [x] Cache rasterized glyphs for atlas reuse
 - [ ] Build and update a GPU glyph atlas
 - [ ] Handle atlas eviction without visible corruption
-- [ ] Support font size, weight, style, line height, and letter spacing
+- [x] Support font size, weight, style, line height, and letter spacing
 
 ### Unicode and bidi
 
@@ -303,11 +304,11 @@ For every widget:
 
 ### Gate
 
-- [ ] Only components required by BizTrace are promoted to stable
+- [ ] Only components validated by concrete application use cases are promoted to stable
 - [ ] Stable components satisfy the common per-widget checklist
 - [ ] The gallery documents supported variants without claiming full DaisyUI API compatibility
 
-## Phase 9 — BizTrace business components
+## Phase 9 — Data-intensive application components
 
 - [ ] Validated form and form section
 - [ ] Searchable and editable data table
@@ -323,7 +324,7 @@ For every widget:
 
 ### Gate
 
-- [ ] Build one real BizTrace screen end to end in both RTL and LTR
+- [ ] Build one representative data-intensive screen end to end in both RTL and LTR
 - [ ] Meet agreed frame-time, memory, accessibility, and interaction targets
 
 ## Phase 10 — Performance and reliability
@@ -347,7 +348,7 @@ For every widget:
 - [ ] Define semantic-versioning and deprecation policy
 - [ ] Audit licenses, fonts, and bundled assets
 - [ ] Package representative applications for Windows, Linux, and macOS
-- [ ] Publish only after BizTrace validates the architecture in production-like use
+- [ ] Publish only after representative applications validate the architecture under production-like use
 
 ## Current next actions
 

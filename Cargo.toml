@@ -2,9 +2,11 @@
 name = "mio-gui"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.87"
 
 [dependencies]
-bytemuck = { version = "1.25.2", features = ["derive"] }
-pollster = "1.0.1"
-wgpu = "30.0.0"
-winit = "0.30.13"
+bytemuck = { version = "=1.25.2", features = ["derive"] }
+cosmic-text = "=0.15.0"
+pollster = "=1.0.1"
+wgpu = "=30.0.0"
+winit = "=0.30.13"

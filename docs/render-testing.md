@@ -15,7 +15,7 @@ Fractional-boundary tests verify that the expanded instance quad preserves parti
 
 Color comparisons will use per-channel tolerances defined alongside color-space golden tests. The current coverage test compares alpha only.
 
-Backend and adapter identity must be recorded when persistent golden images are introduced. Cross-backend approval is required before the rounded-rectangle primitive is frozen.
+GPU matrix runs record adapter name, backend, device type, vendor and device IDs, driver, driver information, and measured worst cases in `target/mio-gui/render-tests/backend.txt`. Assertion failures include the same adapter identity. Cross-backend approval is required before the rounded-rectangle primitive is frozen.
 
 Persistent CPU-reference golden images use ASCII PGM alpha masks so they remain dependency-free and reviewable as text. The committed radius matrix is regenerated only with `MIO_GUI_UPDATE_GOLDENS=1 cargo test rounded_rectangle_golden_images_match`.
 

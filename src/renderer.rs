@@ -20,6 +20,25 @@ impl fmt::Display for RenderError {
 
 impl Error for RenderError {}
 
+#[derive(Debug)]
+pub enum RendererInitError {
+    Surface(String),
+    Adapter(String),
+    Device(String),
+}
+
+impl fmt::Display for RendererInitError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Surface(error) => write!(formatter, "surface creation failed: {error}"),
+            Self::Adapter(error) => write!(formatter, "adapter request failed: {error}"),
+            Self::Device(error) => write!(formatter, "device request failed: {error}"),
+        }
+    }
+}
+
+impl Error for RendererInitError {}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RectUniform {
@@ -123,10 +142,12 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>) -> Self {
+    pub async fn new(window: Arc<Window>) -> Result<Self, RendererInitError> {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance
+            .create_surface(window.clone())
+            .map_err(|error| RendererInitError::Surface(error.to_string()))?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -136,12 +157,12 @@ impl Renderer {
                 apply_limit_buckets: false,
             })
             .await
-            .unwrap();
+            .map_err(|error| RendererInitError::Adapter(error.to_string()))?;
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
-            .unwrap();
+            .map_err(|error| RendererInitError::Device(error.to_string()))?;
 
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -149,7 +170,13 @@ impl Renderer {
             .iter()
             .copied()
             .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
+            .or_else(|| caps.formats.first().copied())
+            .ok_or_else(|| {
+                RendererInitError::Surface("adapter reported no surface formats".into())
+            })?;
+        let alpha_mode = caps.alpha_modes.first().copied().ok_or_else(|| {
+            RendererInitError::Surface("adapter reported no surface alpha modes".into())
+        })?;
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -158,7 +185,7 @@ impl Renderer {
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoNoVsync,
-            alpha_mode: caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 1,
         };
@@ -238,7 +265,7 @@ impl Renderer {
             cache: None,
         });
 
-        Self {
+        Ok(Self {
             surface,
             device,
             queue,
@@ -251,7 +278,7 @@ impl Renderer {
             scale_factor: window.scale_factor() as f32,
             diagnostics: std::env::var_os("MIO_GUI_DIAGNOSTICS").is_some(),
             started_at: std::time::Instant::now(),
-        }
+        })
     }
 
     pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
@@ -410,17 +437,19 @@ mod tests {
 
     static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 
-    async fn render_pixels(
-        dimensions: [u32; 2],
-        rect: RectUniform,
-    ) -> Result<Vec<[u8; 4]>, String> {
+    struct GpuCapture {
+        pixels: Vec<[u8; 4]>,
+        adapter: String,
+    }
+
+    async fn render_pixels(dimensions: [u32; 2], rect: RectUniform) -> Result<GpuCapture, String> {
         render_pixel_batch(dimensions, &[rect]).await
     }
 
     async fn render_pixel_batch(
         dimensions: [u32; 2],
         rectangles: &[RectUniform],
-    ) -> Result<Vec<[u8; 4]>, String> {
+    ) -> Result<GpuCapture, String> {
         let instance = wgpu::Instance::default();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -431,6 +460,17 @@ mod tests {
             })
             .await
             .map_err(|error| error.to_string())?;
+        let adapter_info = adapter.get_info();
+        let adapter_identity = format!(
+            "name={} backend={:?} device_type={:?} vendor={:#x} device={:#x} driver={} driver_info={}",
+            adapter_info.name,
+            adapter_info.backend,
+            adapter_info.device_type,
+            adapter_info.vendor,
+            adapter_info.device,
+            adapter_info.driver,
+            adapter_info.driver_info,
+        );
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
@@ -579,7 +619,10 @@ mod tests {
         drop(mapped);
         readback.unmap();
 
-        Ok(pixels)
+        Ok(GpuCapture {
+            pixels,
+            adapter: adapter_identity,
+        })
     }
 
     fn compare_gpu_to_cpu(
@@ -587,7 +630,7 @@ mod tests {
         logical_size: [f32; 2],
         logical_radii: [f32; 4],
         scale_factor: f32,
-    ) -> (f32, f32, u8) {
+    ) -> (f32, f32, u8, String) {
         let rect = RectUniform::centered_with_radii(
             [dimensions[0] as f32, dimensions[1] as f32],
             scale_factor,
@@ -595,7 +638,8 @@ mod tests {
             logical_radii,
             [1.0; 4],
         );
-        let gpu = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let capture = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let gpu = capture.pixels;
         let cpu = RoundedRectMask::with_radii(rect.size, rect.radii).rasterize_at(
             dimensions,
             rect.position,
@@ -627,6 +671,7 @@ mod tests {
             maximum_difference,
             mean_difference,
             maximum_symmetry_difference,
+            capture.adapter,
         )
     }
 
@@ -666,6 +711,40 @@ mod tests {
         assert_eq!(rect.position, [400.0, 420.0]);
         assert_eq!(rect.size, [800.0, 360.0]);
         assert_eq!(rect.radii, [90.0; 4]);
+    }
+
+    #[test]
+    fn preserves_logical_geometry_across_resize_and_dpi_transitions() {
+        let logical_size = [400.0, 180.0];
+        let logical_radii = [12.0, 24.0, 36.0, 48.0];
+        let transitions = [
+            ([800.0, 600.0], 1.0),
+            ([1870.0, 1013.0], 1.0),
+            ([2337.5, 1266.25], 1.25),
+            ([2805.0, 1519.5], 1.5),
+            ([3740.0, 2026.0], 2.0),
+            ([800.0, 600.0], 1.0),
+        ];
+
+        for (viewport, scale_factor) in transitions {
+            let rect = RectUniform::centered_with_radii(
+                viewport,
+                scale_factor,
+                logical_size,
+                logical_radii,
+                [1.0; 4],
+            );
+            let recovered_size = [rect.size[0] / scale_factor, rect.size[1] / scale_factor];
+            let recovered_radii = rect.radii.map(|radius| radius / scale_factor);
+            let center = [
+                rect.position[0] + rect.size[0] * 0.5,
+                rect.position[1] + rect.size[1] * 0.5,
+            ];
+
+            assert_eq!(recovered_size, logical_size);
+            assert_eq!(recovered_radii, logical_radii);
+            assert_eq!(center, [viewport[0] * 0.5, viewport[1] * 0.5]);
+        }
     }
 
     #[test]
@@ -718,7 +797,9 @@ mod tests {
             3.0,
             [0.0, 1.0, 0.0, 1.0],
         );
-        let pixels = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let pixels = pollster::block_on(render_pixels(dimensions, rect))
+            .unwrap()
+            .pixels;
         let pixel = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize];
 
         assert_eq!(pixel(32, 16), [255, 0, 0, 255]);
@@ -746,7 +827,9 @@ mod tests {
             [0.0, 0.0, 1.0, 1.0],
         );
         right.position = [42.0, 8.0];
-        let pixels = pollster::block_on(render_pixel_batch(dimensions, &[left, right])).unwrap();
+        let pixels = pollster::block_on(render_pixel_batch(dimensions, &[left, right]))
+            .unwrap()
+            .pixels;
         let pixel = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize];
 
         assert_eq!(pixel(14, 16), [255, 0, 0, 255]);
@@ -766,7 +849,9 @@ mod tests {
             [1.0; 4],
         );
         rect.position = [10.75, 10.0];
-        let pixels = pollster::block_on(render_pixels(dimensions, rect)).unwrap();
+        let pixels = pollster::block_on(render_pixels(dimensions, rect))
+            .unwrap()
+            .pixels;
         let alpha = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize][3];
 
         assert_eq!(alpha(9, 16), 0);
@@ -780,6 +865,7 @@ mod tests {
         let mut worst_maximum = (0.0_f32, String::new());
         let mut worst_mean = (0.0_f32, String::new());
         let mut worst_symmetry = (0_u8, String::from("all cases"));
+        let mut adapter = None::<String>;
         let cases = [
             ([0.0, 0.0], [0.0; 4]),
             ([0.5, 0.5], [0.25; 4]),
@@ -798,6 +884,11 @@ mod tests {
 
         for (size, radii) in cases {
             let metrics = compare_gpu_to_cpu([64, 32], size, radii, 1.0);
+            if let Some(expected) = &adapter {
+                assert_eq!(expected, &metrics.3);
+            } else {
+                adapter = Some(metrics.3.clone());
+            }
             let label = format!("size={size:?} radii={radii:?} scale=1");
             if metrics.0 > worst_maximum.0 {
                 worst_maximum = (metrics.0, label.clone());
@@ -812,6 +903,7 @@ mod tests {
 
         for scale_factor in [1.0, 1.25, 1.5, 2.0, 3.0] {
             let metrics = compare_gpu_to_cpu([96, 48], [24.0, 12.0], [3.0; 4], scale_factor);
+            assert_eq!(adapter.as_ref().unwrap(), &metrics.3);
             let label = format!("size=[24, 12] radius=3 scale={scale_factor}");
             if metrics.0 > worst_maximum.0 {
                 worst_maximum = (metrics.0, label.clone());
@@ -826,30 +918,48 @@ mod tests {
 
         assert!(
             worst_maximum.0 <= 0.22,
-            "maximum={} case={}",
+            "maximum={} case={} adapter={}",
             worst_maximum.0,
             worst_maximum.1,
+            adapter.as_ref().unwrap(),
         );
         assert!(
             worst_mean.0 <= 0.001,
-            "mean={} case={}",
+            "mean={} case={} adapter={}",
             worst_mean.0,
             worst_mean.1,
+            adapter.as_ref().unwrap(),
         );
         assert!(
             worst_symmetry.0 <= 1,
-            "symmetry={} case={}",
+            "symmetry={} case={} adapter={}",
             worst_symmetry.0,
             worst_symmetry.1,
+            adapter.as_ref().unwrap(),
         );
-        eprintln!(
-            "gpu coverage matrix: maximum={} case={}; mean={} case={}; symmetry={} case={}",
+        let report = format!(
+            "adapter={}\nmaximum_alpha_difference={}\nmaximum_case={}\nmean_alpha_difference={}\nmean_case={}\nmaximum_symmetry_difference={}\nsymmetry_case={}\n",
+            adapter.as_ref().unwrap(),
             worst_maximum.0,
             worst_maximum.1,
             worst_mean.0,
             worst_mean.1,
             worst_symmetry.0,
             worst_symmetry.1,
+        );
+        let report_directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/mio-gui/render-tests");
+        std::fs::create_dir_all(&report_directory).unwrap();
+        std::fs::write(report_directory.join("backend.txt"), &report).unwrap();
+        eprintln!(
+            "gpu coverage matrix: maximum={} case={}; mean={} case={}; symmetry={} case={}; {}",
+            worst_maximum.0,
+            worst_maximum.1,
+            worst_mean.0,
+            worst_mean.1,
+            worst_symmetry.0,
+            worst_symmetry.1,
+            adapter.as_ref().unwrap(),
         );
     }
 }
