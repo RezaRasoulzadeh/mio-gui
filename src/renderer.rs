@@ -56,21 +56,6 @@ impl RectUniform {
     }
 }
 
-fn queue_surface_resize(
-    configured_size: winit::dpi::PhysicalSize<u32>,
-    pending_size: &mut Option<winit::dpi::PhysicalSize<u32>>,
-    requested_size: winit::dpi::PhysicalSize<u32>,
-) -> bool {
-    if requested_size.width == 0 || requested_size.height == 0 {
-        return false;
-    }
-    if pending_size.unwrap_or(configured_size) == requested_size {
-        return false;
-    }
-    *pending_size = Some(requested_size);
-    true
-}
-
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
@@ -81,7 +66,6 @@ pub struct Renderer {
     rect_buffer: wgpu::Buffer,
     rect_bind_group: wgpu::BindGroup,
     scale_factor: f32,
-    pending_size: Option<winit::dpi::PhysicalSize<u32>>,
     diagnostics: bool,
     started_at: std::time::Instant,
 }
@@ -210,13 +194,12 @@ impl Renderer {
             rect_buffer,
             rect_bind_group,
             scale_factor: window.scale_factor() as f32,
-            pending_size: None,
             diagnostics: std::env::var_os("MIO_GUI_DIAGNOSTICS").is_some(),
             started_at: std::time::Instant::now(),
         }
     }
 
-    pub fn queue_resize(&mut self, size: winit::dpi::PhysicalSize<u32>) -> bool {
+    pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
         if self.diagnostics {
             eprintln!(
                 "resize_event t_us={} event={}x{} configured={}x{} scale={}",
@@ -228,17 +211,12 @@ impl Renderer {
                 self.scale_factor,
             );
         }
-        queue_surface_resize(
-            winit::dpi::PhysicalSize::new(self.config.width, self.config.height),
-            &mut self.pending_size,
-            size,
-        )
-    }
-
-    fn apply_pending_resize(&mut self) {
-        let Some(size) = self.pending_size.take() else {
+        if size.width == 0 || size.height == 0 {
             return;
-        };
+        }
+        if self.config.width == size.width && self.config.height == size.height {
+            return;
+        }
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
@@ -261,12 +239,8 @@ impl Renderer {
         }
     }
 
-    pub fn scale_factor_changed(&mut self, scale_factor: f64) -> bool {
-        let scale_factor = scale_factor as f32;
-        if self.scale_factor == scale_factor {
-            return false;
-        }
-        self.scale_factor = scale_factor;
+    pub fn scale_factor_changed(&mut self, scale_factor: f64) {
+        self.scale_factor = scale_factor as f32;
         self.rect_uniform = RectUniform::centered(
             [self.config.width as f32, self.config.height as f32],
             self.scale_factor,
@@ -276,11 +250,9 @@ impl Renderer {
         );
         self.queue
             .write_buffer(&self.rect_buffer, 0, bytemuck::bytes_of(&self.rect_uniform));
-        true
     }
 
     pub fn render(&mut self) -> Result<(), RenderError> {
-        self.apply_pending_resize();
         let mut recovery_attempted = false;
         let (frame, reconfigure_after_present) = loop {
             match self.surface.get_current_texture() {
@@ -368,7 +340,7 @@ impl Renderer {
 
 #[cfg(test)]
 mod tests {
-    use super::{RectUniform, queue_surface_resize};
+    use super::RectUniform;
     use crate::raster::RoundedRectMask;
     use wgpu::util::DeviceExt;
 
@@ -537,34 +509,6 @@ mod tests {
     #[test]
     fn uniform_layout_has_expected_size() {
         assert_eq!(std::mem::size_of::<RectUniform>(), 48);
-    }
-
-    #[test]
-    fn coalesces_resize_requests_to_latest_size() {
-        let configured = winit::dpi::PhysicalSize::new(800, 600);
-        let mut pending = None;
-
-        assert!(queue_surface_resize(
-            configured,
-            &mut pending,
-            winit::dpi::PhysicalSize::new(1000, 700),
-        ));
-        assert!(queue_surface_resize(
-            configured,
-            &mut pending,
-            winit::dpi::PhysicalSize::new(1200, 800),
-        ));
-        assert!(!queue_surface_resize(
-            configured,
-            &mut pending,
-            winit::dpi::PhysicalSize::new(1200, 800),
-        ));
-        assert!(!queue_surface_resize(
-            configured,
-            &mut pending,
-            winit::dpi::PhysicalSize::new(0, 0),
-        ));
-        assert_eq!(pending, Some(winit::dpi::PhysicalSize::new(1200, 800)));
     }
 
     #[test]
