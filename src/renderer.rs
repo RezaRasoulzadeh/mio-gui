@@ -66,6 +66,8 @@ pub struct Renderer {
     rect_buffer: wgpu::Buffer,
     rect_bind_group: wgpu::BindGroup,
     scale_factor: f32,
+    diagnostics: bool,
+    started_at: std::time::Instant,
 }
 
 impl Renderer {
@@ -103,10 +105,10 @@ impl Renderer {
             color_space: wgpu::SurfaceColorSpace::Auto,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            present_mode: wgpu::PresentMode::AutoVsync,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 1,
+            desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
 
@@ -192,10 +194,23 @@ impl Renderer {
             rect_buffer,
             rect_bind_group,
             scale_factor: window.scale_factor() as f32,
+            diagnostics: std::env::var_os("MIO_GUI_DIAGNOSTICS").is_some(),
+            started_at: std::time::Instant::now(),
         }
     }
 
     pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
+        if self.diagnostics {
+            eprintln!(
+                "resize_event t_us={} event={}x{} configured={}x{} scale={}",
+                self.started_at.elapsed().as_micros(),
+                size.width,
+                size.height,
+                self.config.width,
+                self.config.height,
+                self.scale_factor,
+            );
+        }
         if size.width == 0 || size.height == 0 {
             return;
         }
@@ -211,6 +226,14 @@ impl Renderer {
         );
         self.queue
             .write_buffer(&self.rect_buffer, 0, bytemuck::bytes_of(&self.rect_uniform));
+        if self.diagnostics {
+            eprintln!(
+                "surface_configured t_us={} configured={}x{}",
+                self.started_at.elapsed().as_micros(),
+                self.config.width,
+                self.config.height,
+            );
+        }
     }
 
     pub fn scale_factor_changed(&mut self, scale_factor: f64) {
@@ -247,6 +270,16 @@ impl Renderer {
                 }
             }
         };
+        if self.diagnostics {
+            eprintln!(
+                "frame_acquired t_us={} configured={}x{} texture={}x{}",
+                self.started_at.elapsed().as_micros(),
+                self.config.width,
+                self.config.height,
+                frame.texture.width(),
+                frame.texture.height(),
+            );
+        }
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -287,6 +320,14 @@ impl Renderer {
 
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
+        if self.diagnostics {
+            eprintln!(
+                "frame_presented t_us={} configured={}x{}",
+                self.started_at.elapsed().as_micros(),
+                self.config.width,
+                self.config.height,
+            );
+        }
         if reconfigure_after_present {
             self.surface.configure(&self.device, &self.config);
         }

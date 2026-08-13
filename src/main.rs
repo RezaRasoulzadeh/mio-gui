@@ -4,10 +4,9 @@ mod raster;
 mod renderer;
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 use renderer::Renderer;
@@ -16,17 +15,6 @@ use renderer::Renderer;
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
-    redraw_until: Option<Instant>,
-}
-
-impl App {
-    fn begin_resize_redraw(&mut self, event_loop: &ActiveEventLoop) {
-        self.redraw_until = Some(Instant::now() + Duration::from_millis(200));
-        event_loop.set_control_flow(ControlFlow::Poll);
-        if let Some(window) = &self.window {
-            window.request_redraw();
-        }
-    }
 }
 
 impl ApplicationHandler for App {
@@ -47,7 +35,6 @@ impl ApplicationHandler for App {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.renderer = None;
         self.window = None;
-        self.redraw_until = None;
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -59,26 +46,19 @@ impl ApplicationHandler for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
                 renderer.resize(size);
-                self.begin_resize_redraw(event_loop);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 renderer.scale_factor_changed(scale_factor);
-                self.begin_resize_redraw(event_loop);
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested => {
                 if let Err(error) = renderer.render() {
                     eprintln!("Mio-GUI render error: {error}");
-                }
-                if self
-                    .redraw_until
-                    .is_some_and(|deadline| Instant::now() < deadline)
-                {
-                    if let Some(window) = &self.window {
-                        window.request_redraw();
-                    }
-                } else {
-                    self.redraw_until = None;
-                    event_loop.set_control_flow(ControlFlow::Wait);
                 }
             }
             _ => {}
