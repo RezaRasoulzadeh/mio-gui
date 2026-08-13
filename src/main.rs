@@ -12,16 +12,16 @@ use winit::window::{Window, WindowId};
 
 use renderer::Renderer;
 
+#[cfg(target_os = "macos")]
+const SETTLE_REDRAWS: u8 = 3;
+#[cfg(not(target_os = "macos"))]
+const SETTLE_REDRAWS: u8 = 1;
+
 #[derive(Default)]
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
     redraws_remaining: u8,
-    // Most recent size from a `Resized` event that has not yet been applied
-    // to the surface. A burst of `Resized` events (interactive drag, an
-    // animated maximize) overwrites this rather than each one triggering
-    // its own `surface.configure`, so the expensive reconfigure only runs
-    // once per drawn frame, against the latest known size.
     pending_size: Option<PhysicalSize<u32>>,
 }
 
@@ -37,7 +37,7 @@ impl ApplicationHandler for App {
         let renderer = pollster::block_on(Renderer::new(window.clone()));
         self.window = Some(window.clone());
         self.renderer = Some(renderer);
-        self.redraws_remaining = 3;
+        self.redraws_remaining = SETTLE_REDRAWS;
         window.request_redraw();
     }
 
@@ -56,24 +56,15 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                // Record the size but don't touch the surface here. During a
-                // rapid resize or an animated maximize, winit can deliver
-                // many `Resized` events before a single frame is drawn; if
-                // each one called `surface.configure` synchronously, the
-                // event loop would stall behind repeated swapchain
-                // recreation. Storing the latest size and requesting a
-                // redraw lets multiple queued `Resized` events collapse
-                // into one reconfigure, applied against the newest size,
-                // right before the next frame renders.
                 self.pending_size = Some(size);
-                self.redraws_remaining = 3;
+                self.redraws_remaining = SETTLE_REDRAWS;
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 renderer.scale_factor_changed(scale_factor);
-                self.redraws_remaining = 3;
+                self.redraws_remaining = SETTLE_REDRAWS;
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }

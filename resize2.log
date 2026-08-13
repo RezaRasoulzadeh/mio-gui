@@ -1,0 +1,25 @@
+resize_event t_us=5896 event=800x600 configured=800x600 scale=1
+frame_acquired t_us=5957 configured=800x600 texture=800x600
+frame_presented t_us=7330 configured=800x600
+frame_acquired t_us=7442 configured=800x600 texture=800x600
+frame_presented t_us=8122 configured=800x600
+frame_acquired t_us=8198 configured=800x600 texture=800x600
+frame_presented t_us=8450 configured=800x600
+frame_acquired t_us=17299 configured=800x600 texture=800x600
+frame_presented t_us=17800 configured=800x600
+resize_event t_us=1341299 event=1870x1013 configured=800x600 scale=1
+surface_configured t_us=1342236 configured=1870x1013
+frame_acquired t_us=1342281 configured=1870x1013 texture=1870x1013
+frame_presented t_us=1342880 configured=1870x1013
+frame_acquired t_us=1342950 configured=1870x1013 texture=1870x1013
+frame_presented t_us=1343269 configured=1870x1013
+frame_acquired t_us=1343321 configured=1870x1013 texture=1870x1013
+frame_presented t_us=1343544 configured=1870x1013
+resize_event t_us=2587568 event=800x600 configured=1870x1013 scale=1
+surface_configured t_us=2589302 configured=800x600
+frame_acquired t_us=2589342 configured=800x600 texture=800x600
+frame_presented t_us=2589881 configured=800x600
+frame_acquired t_us=2589940 configured=800x600 texture=800x600
+frame_presented t_us=2590218 configured=800x600
+frame_acquired t_us=2590264 configured=800x600 texture=800x600
+frame_presented t_us=2590484 configured=800x600
