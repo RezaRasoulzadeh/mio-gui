@@ -48,17 +48,19 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                renderer.resize(size);
-                self.redraws_remaining = 3;
-                if let Some(window) = &self.window {
-                    window.request_redraw();
+                if renderer.queue_resize(size) {
+                    self.redraws_remaining = 3;
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                renderer.scale_factor_changed(scale_factor);
-                self.redraws_remaining = 3;
-                if let Some(window) = &self.window {
-                    window.request_redraw();
+                if renderer.scale_factor_changed(scale_factor) {
+                    self.redraws_remaining = 3;
+                    if let Some(window) = &self.window {
+                        window.request_redraw();
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
