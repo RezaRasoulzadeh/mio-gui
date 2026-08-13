@@ -50,6 +50,9 @@ fn sdf_rounded_box(p: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    if rect.size.x <= 0.0 || rect.size.y <= 0.0 {
+        discard;
+    }
     let half_size = rect.size * 0.5;
     let dist = sdf_rounded_box(in.local_position, half_size, rect.radius);
 

@@ -67,18 +67,18 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [ ] Support independent corner radii
 - [ ] Support border width and border color
 - [ ] Support clipping without cutting off antialias coverage
-- [ ] Define behavior for zero size, subpixel size, and zero radius
-- [ ] Define behavior for fractional position and fractional scale factors
+- [x] Define behavior for zero size, subpixel size, and zero radius
+- [x] Define behavior for fractional position and fractional scale factors
 - [ ] Batch multiple rectangles in one render pass
 
 ### Rounded rectangle tests
 
 - [x] Unit-test radius clamping and geometry calculations
 - [ ] Render golden images for zero, small, medium, maximum, and oversized radii
-- [ ] Test square, wide, tall, tiny, and fractional-coordinate rectangles
-- [ ] Test 1.0, 1.25, 1.5, 2.0, and 3.0 scale factors
-- [ ] Verify horizontal and vertical symmetry pixel by pixel
-- [ ] Verify all four corners have identical alpha coverage
+- [x] Test square, wide, tall, tiny, and fractional-coordinate rectangles
+- [x] Test 1.0, 1.25, 1.5, 2.0, and 3.0 scale factors
+- [x] Verify horizontal and vertical symmetry pixel by pixel
+- [x] Verify all four corners have identical alpha coverage
 - [x] Compare rendered boundaries against a CPU-generated reference mask
 - [x] Define an allowed per-channel pixel tolerance
 - [ ] Store renderer name and backend with golden-test results
@@ -87,7 +87,7 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 ### Gate
 
 - [x] Rounded rectangle parameters come from Rust rather than shader constants
-- [ ] Automated pixel tests pass at every required size and scale factor
+- [x] Automated pixel tests pass at every required size and scale factor
 - [ ] Manual checks pass on Linux, Windows, and macOS
 - [ ] Step 1 is declared complete only after these checks pass
 

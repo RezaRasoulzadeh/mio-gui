@@ -506,6 +506,54 @@ mod tests {
         Ok(alpha)
     }
 
+    fn compare_gpu_to_cpu(
+        dimensions: [u32; 2],
+        logical_size: [f32; 2],
+        logical_radius: f32,
+        scale_factor: f32,
+    ) -> (f32, f32, u8) {
+        let rect = RectUniform::centered(
+            [dimensions[0] as f32, dimensions[1] as f32],
+            scale_factor,
+            logical_size,
+            logical_radius,
+            [1.0; 4],
+        );
+        let gpu = pollster::block_on(render_alpha_mask(dimensions, rect)).unwrap();
+        let cpu = RoundedRectMask::new(rect.size, rect.radius).rasterize_at(
+            dimensions,
+            rect.position,
+            32,
+        );
+        let mut total_difference = 0.0_f32;
+        let mut maximum_difference = 0.0_f32;
+        let mut maximum_symmetry_difference = 0_u8;
+
+        for (gpu_alpha, cpu_alpha) in gpu.iter().zip(&cpu) {
+            let difference = (f32::from(*gpu_alpha) / 255.0 - cpu_alpha).abs();
+            total_difference += difference;
+            maximum_difference = maximum_difference.max(difference);
+        }
+
+        for y in 0..dimensions[1] {
+            for x in 0..dimensions[0] {
+                let index = (y * dimensions[0] + x) as usize;
+                let reflected_x = (y * dimensions[0] + dimensions[0] - x - 1) as usize;
+                let reflected_y = ((dimensions[1] - y - 1) * dimensions[0] + x) as usize;
+                maximum_symmetry_difference = maximum_symmetry_difference
+                    .max(gpu[index].abs_diff(gpu[reflected_x]))
+                    .max(gpu[index].abs_diff(gpu[reflected_y]));
+            }
+        }
+
+        let mean_difference = total_difference / cpu.len() as f32;
+        (
+            maximum_difference,
+            mean_difference,
+            maximum_symmetry_difference,
+        )
+    }
+
     #[test]
     fn uniform_layout_has_expected_size() {
         assert_eq!(std::mem::size_of::<RectUniform>(), 48);
@@ -554,32 +602,79 @@ mod tests {
     }
 
     #[test]
-    fn gpu_coverage_matches_cpu_reference() {
-        let dimensions = [64, 32];
-        let rect = RectUniform::centered(
-            [dimensions[0] as f32, dimensions[1] as f32],
-            1.0,
-            [40.0, 18.0],
-            4.5,
-            [1.0; 4],
-        );
-        let gpu = pollster::block_on(render_alpha_mask(dimensions, rect)).unwrap();
-        let cpu = RoundedRectMask::new(rect.size, rect.radius).rasterize([40, 18], 32);
-        let offset = [rect.position[0] as u32, rect.position[1] as u32];
-        let mut total_difference = 0.0_f32;
-        let mut maximum_difference = 0.0_f32;
+    fn gpu_coverage_matches_shape_radius_and_scale_matrices() {
+        let mut worst_maximum = (0.0_f32, String::new());
+        let mut worst_mean = (0.0_f32, String::new());
+        let mut worst_symmetry = (0_u8, String::from("all cases"));
+        let cases = [
+            ([0.0, 0.0], 0.0),
+            ([0.5, 0.5], 0.25),
+            ([32.0, 16.0], 0.0),
+            ([32.0, 16.0], 1.0),
+            ([32.0, 16.0], 4.0),
+            ([32.0, 16.0], 8.0),
+            ([32.0, 16.0], 100.0),
+            ([20.0, 20.0], 5.0),
+            ([40.0, 12.0], 3.0),
+            ([12.0, 28.0], 3.0),
+            ([2.0, 2.0], 1.0),
+            ([31.0, 15.0], 3.75),
+        ];
 
-        for y in 0..18 {
-            for x in 0..40 {
-                let gpu_index = ((offset[1] + y) * dimensions[0] + offset[0] + x) as usize;
-                let cpu_index = (y * 40 + x) as usize;
-                let difference = (f32::from(gpu[gpu_index]) / 255.0 - cpu[cpu_index]).abs();
-                total_difference += difference;
-                maximum_difference = maximum_difference.max(difference);
+        for (size, radius) in cases {
+            let metrics = compare_gpu_to_cpu([64, 32], size, radius, 1.0);
+            let label = format!("size={size:?} radius={radius} scale=1");
+            if metrics.0 > worst_maximum.0 {
+                worst_maximum = (metrics.0, label.clone());
+            }
+            if metrics.1 > worst_mean.0 {
+                worst_mean = (metrics.1, label.clone());
+            }
+            if metrics.2 > worst_symmetry.0 {
+                worst_symmetry = (metrics.2, label);
             }
         }
 
-        assert!(maximum_difference <= 0.15, "{maximum_difference}");
-        assert!(total_difference / cpu.len() as f32 <= 0.01);
+        for scale_factor in [1.0, 1.25, 1.5, 2.0, 3.0] {
+            let metrics = compare_gpu_to_cpu([96, 48], [24.0, 12.0], 3.0, scale_factor);
+            let label = format!("size=[24, 12] radius=3 scale={scale_factor}");
+            if metrics.0 > worst_maximum.0 {
+                worst_maximum = (metrics.0, label.clone());
+            }
+            if metrics.1 > worst_mean.0 {
+                worst_mean = (metrics.1, label.clone());
+            }
+            if metrics.2 > worst_symmetry.0 {
+                worst_symmetry = (metrics.2, label);
+            }
+        }
+
+        assert!(
+            worst_maximum.0 <= 0.22,
+            "maximum={} case={}",
+            worst_maximum.0,
+            worst_maximum.1,
+        );
+        assert!(
+            worst_mean.0 <= 0.001,
+            "mean={} case={}",
+            worst_mean.0,
+            worst_mean.1,
+        );
+        assert!(
+            worst_symmetry.0 <= 1,
+            "symmetry={} case={}",
+            worst_symmetry.0,
+            worst_symmetry.1,
+        );
+        eprintln!(
+            "gpu coverage matrix: maximum={} case={}; mean={} case={}; symmetry={} case={}",
+            worst_maximum.0,
+            worst_maximum.1,
+            worst_mean.0,
+            worst_mean.1,
+            worst_symmetry.0,
+            worst_symmetry.1,
+        );
     }
 }

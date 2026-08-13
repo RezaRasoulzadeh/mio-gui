@@ -35,14 +35,18 @@ impl RoundedRectMask {
     }
 
     pub fn coverage(self, pixel: [u32; 2], samples_per_axis: u32) -> f32 {
+        self.coverage_at(pixel, [0.0, 0.0], samples_per_axis)
+    }
+
+    pub fn coverage_at(self, pixel: [u32; 2], origin: [f32; 2], samples_per_axis: u32) -> f32 {
         assert!(samples_per_axis > 0);
 
         let mut covered = 0_u64;
         for sample_y in 0..samples_per_axis {
             for sample_x in 0..samples_per_axis {
                 let point = [
-                    pixel[0] as f32 + (sample_x as f32 + 0.5) / samples_per_axis as f32,
-                    pixel[1] as f32 + (sample_y as f32 + 0.5) / samples_per_axis as f32,
+                    pixel[0] as f32 + (sample_x as f32 + 0.5) / samples_per_axis as f32 - origin[0],
+                    pixel[1] as f32 + (sample_y as f32 + 0.5) / samples_per_axis as f32 - origin[1],
                 ];
                 if self.signed_distance(point) <= 0.0 {
                     covered += 1;
@@ -55,12 +59,21 @@ impl RoundedRectMask {
     }
 
     pub fn rasterize(self, dimensions: [u32; 2], samples_per_axis: u32) -> Vec<f32> {
+        self.rasterize_at(dimensions, [0.0, 0.0], samples_per_axis)
+    }
+
+    pub fn rasterize_at(
+        self,
+        dimensions: [u32; 2],
+        origin: [f32; 2],
+        samples_per_axis: u32,
+    ) -> Vec<f32> {
         let mut mask =
             Vec::with_capacity((dimensions[0] as usize).saturating_mul(dimensions[1] as usize));
 
         for y in 0..dimensions[1] {
             for x in 0..dimensions[0] {
-                mask.push(self.coverage([x, y], samples_per_axis));
+                mask.push(self.coverage_at([x, y], origin, samples_per_axis));
             }
         }
 
@@ -154,5 +167,18 @@ mod tests {
         assert_eq!(mask.size(), [50.0, 22.5]);
         assert_eq!(mask.radius(), 5.625);
         assert!(mask.signed_distance([25.0, 11.25]) < 0.0);
+    }
+
+    #[test]
+    fn fractional_origin_moves_coverage_without_changing_shape() {
+        let mask = RoundedRectMask::new([10.0, 6.0], 2.0);
+        let unshifted = mask.rasterize_at([16, 12], [2.0, 2.0], 8);
+        let shifted = mask.rasterize_at([16, 12], [2.5, 2.5], 8);
+
+        assert_ne!(unshifted, shifted);
+        assert_eq!(
+            mask.coverage_at([2, 2], [2.5, 2.5], 8),
+            mask.coverage_at([12, 2], [2.5, 2.5], 8),
+        );
     }
 }
