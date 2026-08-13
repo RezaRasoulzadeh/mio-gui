@@ -6,8 +6,8 @@ mod renderer;
 mod text;
 
 pub use app::run;
-pub use renderer::{RenderError, Renderer, RendererInitError};
+pub use renderer::{GlyphAtlasPlacement, GlyphQuad, RenderError, Renderer, RendererInitError};
 pub use text::{
-    DEFAULT_FONT_FAMILY, GlyphAtlasStats, GlyphImageContent, GlyphRasterDescriptor,
+    DEFAULT_FONT_FAMILY, GlyphAtlasKey, GlyphAtlasStats, GlyphImageContent, GlyphRasterDescriptor,
     RasterizedGlyph, ShapedGlyph, ShapedLine, TextCacheStats, TextSlant, TextStyle, TextSystem,
 };

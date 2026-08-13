@@ -3,7 +3,43 @@ use std::sync::Arc;
 use std::{error::Error, fmt};
 use winit::window::Window;
 
+use crate::glyph_atlas::{AtlasInsert, GpuGlyphAtlas};
+use crate::text::{RasterizedGlyph, ShapedGlyph, TextSystem};
+
 const MAX_RECTANGLES: usize = 1024;
+const MAX_GLYPHS: usize = 4096;
+const GLYPH_ATLAS_SIZE: f32 = 2048.0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GlyphAtlasPlacement {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub generation: u64,
+    pub uploaded: bool,
+    pub atlas_reset: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlyphQuad {
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+    pub atlas: GlyphAtlasPlacement,
+    pub color: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct GlyphInstance {
+    position: [f32; 2],
+    size: [f32; 2],
+    uv_min: [f32; 2],
+    uv_max: [f32; 2],
+    viewport: [f32; 2],
+    _padding: [f32; 2],
+    color: [f32; 4],
+}
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -139,6 +175,14 @@ pub struct Renderer {
     scale_factor: f32,
     diagnostics: bool,
     started_at: std::time::Instant,
+    glyph_atlas: GpuGlyphAtlas,
+    glyph_pipeline: wgpu::RenderPipeline,
+    glyph_buffer: wgpu::Buffer,
+    glyph_bind_group: wgpu::BindGroup,
+    glyph_count: u32,
+    glyph_generation: Option<u64>,
+    glyph_quads: Vec<GlyphQuad>,
+    text_system: TextSystem,
 }
 
 impl Renderer {
@@ -264,8 +308,106 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let glyph_atlas = GpuGlyphAtlas::new(&device, 2048, 2048, 1);
+        let glyph_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("glyph_shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/glyph.wgsl").into()),
+        });
+        let glyph_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("glyph_instances"),
+            size: (MAX_GLYPHS * std::mem::size_of::<GlyphInstance>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let glyph_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("glyph_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let glyph_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("glyph_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let glyph_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("glyph_bind_group"),
+            layout: &glyph_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(glyph_atlas.view()),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&glyph_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: glyph_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let glyph_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("glyph_pipeline_layout"),
+                bind_group_layouts: &[Some(&glyph_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let glyph_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("glyph_pipeline"),
+            layout: Some(&glyph_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &glyph_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &glyph_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
 
-        Ok(Self {
+        let mut renderer = Self {
             surface,
             device,
             queue,
@@ -278,7 +420,17 @@ impl Renderer {
             scale_factor: window.scale_factor() as f32,
             diagnostics: std::env::var_os("MIO_GUI_DIAGNOSTICS").is_some(),
             started_at: std::time::Instant::now(),
-        })
+            glyph_atlas,
+            glyph_pipeline,
+            glyph_buffer,
+            glyph_bind_group,
+            glyph_count: 0,
+            glyph_generation: None,
+            glyph_quads: Vec::new(),
+            text_system: TextSystem::new(),
+        };
+        renderer.rebuild_demo_text();
+        Ok(renderer)
     }
 
     pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
@@ -310,6 +462,7 @@ impl Renderer {
             [0.913, 0.332, 0.003, 1.0],
         );
         self.upload_rectangles(&[self.rect_uniform]);
+        self.rebuild_demo_text();
         if self.diagnostics {
             eprintln!(
                 "surface_configured t_us={} configured={}x{}",
@@ -322,6 +475,9 @@ impl Renderer {
 
     pub fn scale_factor_changed(&mut self, scale_factor: f64) {
         self.scale_factor = scale_factor as f32;
+        self.glyph_quads.clear();
+        self.glyph_count = 0;
+        self.glyph_generation = None;
         self.rect_uniform = RectUniform::centered(
             [self.config.width as f32, self.config.height as f32],
             self.scale_factor,
@@ -330,6 +486,7 @@ impl Renderer {
             [0.913, 0.332, 0.003, 1.0],
         );
         self.upload_rectangles(&[self.rect_uniform]);
+        self.rebuild_demo_text();
     }
 
     fn upload_rectangles(&mut self, rectangles: &[RectUniform]) {
@@ -339,6 +496,105 @@ impl Renderer {
                 .write_buffer(&self.rect_buffer, 0, bytemuck::cast_slice(rectangles));
         }
         self.rectangle_count = rectangles.len() as u32;
+    }
+
+    pub fn upload_rasterized_glyph(
+        &mut self,
+        glyph: &ShapedGlyph,
+        scale_factor: f32,
+        image: &RasterizedGlyph,
+    ) -> Option<GlyphAtlasPlacement> {
+        let inserted =
+            self.glyph_atlas
+                .upload(&self.queue, glyph.raster.atlas_key(scale_factor), image)?;
+        let (region, uploaded, atlas_reset) = match inserted {
+            AtlasInsert::Existing(region) => (region, false, false),
+            AtlasInsert::Inserted(region) => (region, true, false),
+            AtlasInsert::ResetAndInserted(region) => (region, true, true),
+            AtlasInsert::TooLarge => return None,
+        };
+        if atlas_reset {
+            self.glyph_count = 0;
+            self.glyph_generation = None;
+            self.glyph_quads.clear();
+        }
+        Some(GlyphAtlasPlacement {
+            x: region.x,
+            y: region.y,
+            width: region.width,
+            height: region.height,
+            generation: region.generation,
+            uploaded,
+            atlas_reset,
+        })
+    }
+
+    pub fn set_glyph_quads(&mut self, glyphs: &[GlyphQuad]) -> bool {
+        if glyphs.len() > MAX_GLYPHS {
+            return false;
+        }
+        let generation = glyphs.first().map(|glyph| glyph.atlas.generation);
+        if glyphs
+            .iter()
+            .any(|glyph| Some(glyph.atlas.generation) != generation)
+        {
+            return false;
+        }
+        let viewport = [self.config.width as f32, self.config.height as f32];
+        let instances = glyphs
+            .iter()
+            .map(|glyph| GlyphInstance {
+                position: glyph.position,
+                size: glyph.size,
+                uv_min: [
+                    glyph.atlas.x as f32 / GLYPH_ATLAS_SIZE,
+                    glyph.atlas.y as f32 / GLYPH_ATLAS_SIZE,
+                ],
+                uv_max: [
+                    (glyph.atlas.x + glyph.atlas.width) as f32 / GLYPH_ATLAS_SIZE,
+                    (glyph.atlas.y + glyph.atlas.height) as f32 / GLYPH_ATLAS_SIZE,
+                ],
+                viewport,
+                _padding: [0.0; 2],
+                color: glyph.color,
+            })
+            .collect::<Vec<_>>();
+        if !instances.is_empty() {
+            self.queue
+                .write_buffer(&self.glyph_buffer, 0, bytemuck::cast_slice(&instances));
+        }
+        self.glyph_count = instances.len() as u32;
+        self.glyph_generation = generation;
+        self.glyph_quads = glyphs.to_vec();
+        true
+    }
+
+    fn rebuild_demo_text(&mut self) {
+        let scale_factor = self.scale_factor;
+        let line =
+            self.text_system
+                .shape_line("Mio-GUI  |  رابط کاربری راست‌به‌چپ و چپ‌به‌راست", 24.0, 34.0);
+        let line_start = (self.config.width as f32 - line.width * scale_factor) * 0.5;
+        let baseline = self.config.height as f32 * 0.5;
+        let mut quads = Vec::with_capacity(line.glyphs.len());
+        for glyph in &line.glyphs {
+            let Some(image) = self.text_system.rasterize_glyph(glyph, scale_factor) else {
+                continue;
+            };
+            let Some(atlas) = self.upload_rasterized_glyph(glyph, scale_factor, &image) else {
+                continue;
+            };
+            quads.push(GlyphQuad {
+                position: [
+                    line_start + glyph.x * scale_factor + image.left as f32,
+                    baseline - image.top as f32,
+                ],
+                size: [image.width as f32, image.height as f32],
+                atlas,
+                color: [0.08, 0.07, 0.05, 1.0],
+            });
+        }
+        self.set_glyph_quads(&quads);
     }
 
     pub fn render(&mut self) -> Result<(), RenderError> {
@@ -408,6 +664,11 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.rect_bind_group, &[]);
             pass.draw(0..6, 0..self.rectangle_count);
+            if self.glyph_count > 0 {
+                pass.set_pipeline(&self.glyph_pipeline);
+                pass.set_bind_group(0, &self.glyph_bind_group, &[]);
+                pass.draw(0..6, 0..self.glyph_count);
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));

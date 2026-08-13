@@ -1,0 +1,44 @@
+<svg viewBox="0 0 960 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Mio-GUI banner">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f1115"/>
+      <stop offset="100%" stop-color="#181c24"/>
+    </linearGradient>
+    <linearGradient id="rect" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#e9540b"/>
+      <stop offset="100%" stop-color="#f2871f"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="960" height="260" fill="url(#bg)"/>
+
+  <!-- subtle grid to suggest a canvas / renderer surface -->
+  <g stroke="#2a2f3a" stroke-width="1">
+    <line x1="0" y1="65" x2="960" y2="65"/>
+    <line x1="0" y1="130" x2="960" y2="130"/>
+    <line x1="0" y1="195" x2="960" y2="195"/>
+  </g>
+
+  <!-- the rounded rectangle primitive, as actually rendered by the demo -->
+  <rect x="60" y="70" width="180" height="120" rx="45" ry="45" fill="url(#rect)"/>
+
+  <!-- LTR direction indicator -->
+  <g transform="translate(300,110)">
+    <line x1="0" y1="20" x2="90" y2="20" stroke="#5f6673" stroke-width="3"/>
+    <path d="M 82 12 L 96 20 L 82 28 Z" fill="#5f6673"/>
+    <text x="0" y="52" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#8b93a3">LTR</text>
+  </g>
+
+  <!-- RTL direction indicator (mirrored) -->
+  <g transform="translate(490,110)">
+    <line x1="90" y1="20" x2="0" y2="20" stroke="#5f6673" stroke-width="3"/>
+    <path d="M 8 12 L -6 20 L 8 28 Z" fill="#5f6673"/>
+    <text x="0" y="52" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#8b93a3">RTL</text>
+  </g>
+
+  <!-- wordmark -->
+  <g transform="translate(660,150)">
+    <text x="0" y="0" font-family="Helvetica, Arial, sans-serif" font-size="56" font-weight="700" fill="#f5f6f8">Mio-GUI</text>
+    <text x="2" y="30" font-family="Helvetica, Arial, sans-serif" font-size="16" fill="#8b93a3">native &#183; Rust &#183; RTL first-class</text>
+  </g>
+</svg>

@@ -100,7 +100,7 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [ ] Implement deterministic fallback chains
 - [x] Cache shaped runs with bounded storage and font-change invalidation
 - [x] Cache rasterized glyphs for atlas reuse
-- [ ] Build and update a GPU glyph atlas
+- [x] Build and update a GPU glyph atlas
 - [ ] Handle atlas eviction without visible corruption
 - [x] Support font size, weight, style, line height, and letter spacing
 

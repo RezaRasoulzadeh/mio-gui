@@ -69,6 +69,9 @@ pub struct GlyphRasterDescriptor {
     flags: CacheKeyFlags,
 }
 
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct GlyphAtlasKey(CacheKey);
+
 impl GlyphRasterDescriptor {
     fn cache_key(&self, scale_factor: f32) -> CacheKey {
         let scale_factor = scale_factor.max(f32::EPSILON);
@@ -86,6 +89,10 @@ impl GlyphRasterDescriptor {
             self.flags,
         )
         .0
+    }
+
+    pub fn atlas_key(&self, scale_factor: f32) -> GlyphAtlasKey {
+        GlyphAtlasKey(self.cache_key(scale_factor))
     }
 }
 
@@ -166,7 +173,7 @@ pub struct TextSystem {
     rasterized_glyph_cache: HashMap<CacheKey, Option<RasterizedGlyph>>,
     raster_cache_hits: u64,
     raster_cache_misses: u64,
-    glyph_atlas: GlyphAtlas<CacheKey>,
+    glyph_atlas: GlyphAtlas<GlyphAtlasKey>,
 }
 
 impl Default for TextSystem {
@@ -280,7 +287,7 @@ impl TextSystem {
         if let Some(image) = self.rasterized_glyph_cache.get(&cache_key) {
             self.raster_cache_hits += 1;
             let image = image.clone();
-            self.register_glyph_in_atlas(cache_key, image.as_ref());
+            self.register_glyph_in_atlas(GlyphAtlasKey(cache_key), image.as_ref());
             return image;
         }
         self.raster_cache_misses += 1;
@@ -303,11 +310,15 @@ impl TextSystem {
             self.rasterized_glyph_cache.clear();
         }
         self.rasterized_glyph_cache.insert(cache_key, image.clone());
-        self.register_glyph_in_atlas(cache_key, image.as_ref());
+        self.register_glyph_in_atlas(GlyphAtlasKey(cache_key), image.as_ref());
         image
     }
 
-    fn register_glyph_in_atlas(&mut self, cache_key: CacheKey, image: Option<&RasterizedGlyph>) {
+    fn register_glyph_in_atlas(
+        &mut self,
+        cache_key: GlyphAtlasKey,
+        image: Option<&RasterizedGlyph>,
+    ) {
         let Some(image) = image else {
             return;
         };
