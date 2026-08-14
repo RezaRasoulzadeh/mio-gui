@@ -53,9 +53,9 @@ flowchart TB
         geometry["logical → physical geometry"]
     end
 
-    subgraph widgets["Widgets (in progress)"]
-        tree["retained widget tree"]
-        daisy["DaisyUI-vocabulary components"]
+    subgraph widgets["Widgets"]
+        tree["retained widget tree, hit-testing, events"]
+        daisy["DaisyUI-vocabulary components (not started)"]
     end
 
     winit --> wgpu
@@ -67,11 +67,10 @@ flowchart TB
     direction -.cascades into.-> geometry
     geometry -.resolves into.-> wgsl
 
-    style widgets fill:#1f1300,stroke:#e9540b,stroke-dasharray: 4 3
     style daisy fill:#1f1300,stroke:#e9540b,stroke-dasharray: 4 3
 ```
 
-Solid boxes exist today. Layout is fully implemented and gated closed (Phase 3). The widget tree's identity model has landed; DaisyUI-vocabulary components (dashed) are not yet started.
+Solid boxes exist today. Layout (Phase 3) and the widget tree's hit-testing/event runtime (Phase 4) are both fully implemented and gated closed. DaisyUI-vocabulary components (dashed) are not yet started.
 
 ## Where things stand
 
@@ -83,7 +82,7 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 | 1 | Window + renderer foundation, rounded-rect primitive | ![90%](https://progress-bar.xyz/90/?width=120&color=e9540b) |
 | 2 | Text & font system (`cosmic-text`, bidi, shaping) | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 3 | Core geometry & direction-aware layout | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
-| 4 | Widget tree, hit-testing, events | ![9%](https://progress-bar.xyz/9/?width=120&color=e9540b) |
+| 4 | Widget tree, hit-testing, events | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 5 | Focus, keyboard, accessibility | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 6 | Theme & style tokens | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 7 | Foundational widgets | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
@@ -103,12 +102,12 @@ Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s ow
 - `cosmic-text` integration with Unicode bidi shaping, RTL/LTR interaction geometry, bounded shape and raster caches, a GPU glyph atlas, bundled Vazirmatn and deterministic Noto fallbacks, locale-explicit digit formatting, IME state, and clipboard operations ([`src/text.rs`](src/text.rs), [`src/text_edit.rs`](src/text_edit.rs), [`src/digit_format.rs`](src/digit_format.rs), [`src/clipboard.rs`](src/clipboard.rs), [`assets/fonts/`](assets/fonts/))
 - Direction-neutral core geometry — point, size, rectangle, edges, constraints, and transforms, with logical/physical coordinate separation and defined layout-to-render rounding rules ([`src/geometry.rs`](src/geometry.rs), [`docs/geometry.md`](docs/geometry.md))
 - Direction-aware row/column layout — cascading `Direction::Ltr`/`Rtl`, gap, padding, margin, min/max size, alignment, and RTL-mirrored placement without reversing semantic child order ([`src/layout.rs`](src/layout.rs), [`src/linear_layout.rs`](src/linear_layout.rs), [`docs/layout.md`](docs/layout.md))
-- A retained widget tree with stable widget identity, the first piece of Phase 4's runtime ([`src/widget_tree.rs`](src/widget_tree.rs))
+- A retained widget tree with stable widget identity, frozen frame snapshots, invalidation, hit-testing, pointer interaction, and nested event flow — Phase 4's full runtime, tested across simulated resize and DPI transitions ([`src/widget_tree.rs`](src/widget_tree.rs), [`src/frame.rs`](src/frame.rs), [`src/event.rs`](src/event.rs), [`src/interaction.rs`](src/interaction.rs), [`src/update.rs`](src/update.rs))
 - A documented diagnostics path (`MIO_GUI_DIAGNOSTICS=1`) for surface lifecycle and presentation timing, used to debug real resize/maximize behavior across Ubuntu and macOS ([`docs/window-resize.md`](docs/window-resize.md), [`docs/errors-and-diagnostics.md`](docs/errors-and-diagnostics.md))
 
 ## Not yet — by design
 
-The widget tree's state/message flow, hit-testing, event phases, focus, keyboard handling, accessibility, theming, and every DaisyUI-vocabulary component are **deliberately unstarted or early**. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component only gets promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
+Focus, keyboard handling, accessibility, theming, and every DaisyUI-vocabulary component are **deliberately unstarted**. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component only gets promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
 
 ## Tech stack
 
