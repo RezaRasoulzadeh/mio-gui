@@ -3,6 +3,10 @@ name = "mio-gui"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.87"
+authors = ["Reza Rasoulzadeh"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/RezaRasoulzadeh/mio-gui"
+description = "A native, cross-platform Rust GUI framework with RTL and LTR as equal, first-class layout directions."
 
 [dependencies]
 arboard = { version = "=3.6.1", default-features = false, features = ["wayland-data-control"] }

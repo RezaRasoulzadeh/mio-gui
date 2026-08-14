@@ -8,6 +8,7 @@
 ![CI](https://github.com/RezaRasoulzadeh/mio-gui/actions/workflows/quality.yml/badge.svg)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20Linux%20%7C%20macOS-3a3f4b)
 ![Status](https://img.shields.io/badge/status-pre--alpha-8b3a0e)
+![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-3a3f4b)
 
 </div>
 
@@ -159,6 +160,10 @@ MIO_GUI_DIAGNOSTICS=1 cargo run --example rounded_rectangle
 - Mixed-direction text is shaped by a Unicode-compliant engine, not approximated
 - Concrete application use cases pull features into scope before speculative framework work
 - Every primitive ships with automated tests and an explicit acceptance gate
+
+## License
+
+Licensed under either of [MIT](LICENSE-MIT) or [Apache License 2.0](LICENSE-APACHE) at your option. Copyright retained by Reza Rasoulzadeh; the copyright notice must be kept in any copy or redistribution of this work.
 
 ## Status
 
