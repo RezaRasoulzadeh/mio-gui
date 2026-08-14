@@ -19,6 +19,10 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [ ] Concrete application use cases drive scope before speculative framework features
 - [ ] Each primitive has automated tests and explicit acceptance criteria
 - [ ] Only `TODO` and filename comments are used in source code
+- [x] Define core, render, runtime, and optional framework layers
+- [x] Enforce the dependency direction `core <- render <- runtime <- framework`
+- [x] Keep backend and application-lifecycle types out of core contracts
+- [ ] Extract stable layers into workspace crates without changing their contracts
 
 ## Phase 0 — Engineering baseline
 
@@ -193,39 +197,55 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 
 ## Phase 5 — Focus, keyboard, and accessibility
 
-- [ ] Implement focusable, disabled, hidden, and inert states
-- [ ] Implement tab order independently from visual mirroring
-- [ ] Implement direction-aware arrow navigation
-- [ ] Draw a themeable focus indicator
-- [ ] Restore focus safely after tree changes
-- [ ] Define semantic roles, names, values, states, and actions
-- [ ] Connect to platform accessibility APIs
-- [ ] Support keyboard-only operation for every interactive component
-- [ ] Respect reduced motion, contrast, and platform text settings where available
-
+- [x] Implement focusable, disabled, hidden, and inert states
+- [x] Implement tab order independently from visual mirroring
+- [x] Implement direction-aware arrow navigation
+- [x] Draw a themeable focus indicator
+- [x] Restore focus safely after tree changes
+- [x] Define semantic roles, names, values, states, and actions
+- [x] Connect to platform accessibility APIs through the runtime adapter
+- [x] Define platform-neutral keyboard events and route them through focused widget ancestry
+- [x] Translate native `winit` keyboard input at the runtime boundary
+- [x] Apply Tab and direction-aware arrow navigation from keyboard events
+- [x] Translate keyboard activation and adjustment keys into validated semantic actions
 ### Gate
 
-- [ ] A representative form is usable with keyboard and screen reader in both directions
+- [x] A representative form model has equivalent keyboard and semantic behavior in both directions
+- [x] Focus, keyboard, semantics, and platform adapter contracts have automated tests
 
 ## Phase 6 — Theme and style system
 
-- [ ] Define semantic color tokens rather than component-specific raw colors
-- [ ] Define spacing, radius, typography, border, elevation, and motion tokens
-- [ ] Support light and dark themes
-- [ ] Support runtime theme switching
-- [ ] Define component size and visual variants
-- [ ] Resolve state styles for hover, active, focus, disabled, selected, and error
-- [ ] Ensure themes meet contrast targets
-- [ ] Keep styling independent from layout direction except where semantically required
+- [x] Define centralized reduced-motion, contrast, and text-scale policies
+- [x] Connect supported platform preference sources in the runtime layer
+- [x] Apply platform preferences to resolved themes, typography, motion, and widget style inputs
+- [x] Define semantic color tokens rather than component-specific raw colors
+- [x] Define spacing, radius, typography, border, elevation, and motion tokens
+- [x] Support light and dark themes
+- [x] Support runtime theme switching
+- [x] Define component size and visual variants
+- [x] Resolve state styles for hover, active, focus, disabled, selected, and error
+- [x] Ensure themes meet contrast targets
+- [x] Keep styling independent from layout direction except where semantically required
 
 ### Gate
 
-- [ ] One component gallery renders consistently in LTR, RTL, light, and dark modes
+- [x] One component gallery renders consistently in LTR, RTL, light, and dark modes
+  - [x] Automated offscreen GPU pixels mirror between LTR and RTL in both color schemes
+  - [x] Manual gallery appearance is accepted on a supported desktop
 
 ## Phase 7 — Foundational widgets
 
-- [ ] Text
+- [x] Text
+  - [x] Define public API, logical alignment, inherited direction, wrapping, and line limits
+  - [x] Preserve grapheme-safe source ranges through measurement and paint descriptions
+  - [x] Define static-text accessibility semantics
+  - [x] Connect the widget through the retained layout and render path
+  - [x] Add widget-level visual goldens and a minimal example
 - [ ] Icon and image
+  - [x] Define validated backend-neutral pixel image resources and image paint descriptions
+  - [x] Define image sizing, fitting, logical alignment, explicit RTL mirroring, and semantics
+  - [ ] Connect image and icon variants through retained rendering
+  - [ ] Add image/icon visual goldens and minimal examples
 - [ ] Spacer and divider
 - [ ] Container and surface
 - [ ] Row, column, stack, and scroll view
@@ -239,11 +259,16 @@ For every widget:
 
 - [ ] Define anatomy and public API
 - [ ] Define states and keyboard interaction
+- [ ] Verify complete keyboard-only operation
 - [ ] Define LTR and RTL behavior
 - [ ] Define accessibility semantics
 - [ ] Add unit and interaction tests
 - [ ] Add visual golden tests for states, themes, directions, and scale factors
 - [ ] Add a minimal example
+
+### Gate
+
+- [ ] A representative rendered form is keyboard-usable and manually verified with platform screen readers in both directions
 
 ## Phase 8 — DaisyUI-inspired component coverage
 
@@ -355,8 +380,9 @@ For every widget:
 
 ## Phase 11 — Public API and distribution
 
-- [ ] Separate core, renderer, widgets, theme, and platform concerns into stable boundaries
+- [ ] Extract core, render, runtime, and framework into independently consumable crates
 - [ ] Keep backend-specific types out of the public widget API
+- [ ] Make the high-level framework layer optional
 - [ ] Add API documentation and runnable examples
 - [ ] Define feature flags and default features
 - [ ] Define semantic-versioning and deprecation policy

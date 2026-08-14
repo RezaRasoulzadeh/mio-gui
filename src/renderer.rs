@@ -4,7 +4,8 @@ use std::{error::Error, fmt};
 use winit::window::Window;
 
 use crate::glyph_atlas::{AtlasInsert, GpuGlyphAtlas};
-use crate::text::{RasterizedGlyph, ShapedGlyph, TextStyle, TextSystem};
+use crate::text::{RasterizedGlyph, ShapedGlyph, TextSystem};
+use crate::{RectDraw, TextAlign, TextDraw};
 
 const MAX_RECTANGLES: usize = 1024;
 const MAX_GLYPHS: usize = 4096;
@@ -26,23 +27,6 @@ pub struct GlyphQuad {
     pub position: [f32; 2],
     pub size: [f32; 2],
     pub atlas: GlyphAtlasPlacement,
-    pub color: [f32; 4],
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum TextAlign {
-    Start,
-    #[default]
-    Center,
-    End,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct TextDraw {
-    pub text: String,
-    pub style: TextStyle,
-    pub baseline: [f32; 2],
-    pub align: TextAlign,
     pub color: [f32; 4],
 }
 
@@ -107,6 +91,30 @@ struct RectUniform {
 }
 
 impl RectUniform {
+    fn from_draw(viewport: [f32; 2], scale_factor: f32, draw: RectDraw) -> Self {
+        let scale_factor = scale_factor.max(f32::EPSILON);
+        let size = draw.size.map(|value| value.max(0.0) * scale_factor);
+        Self {
+            position: draw.position.map(|value| value * scale_factor),
+            size,
+            viewport,
+            antialias_padding: 2.0,
+            _padding: 0.0,
+            radii: crate::raster::normalize_corner_radii(
+                size,
+                draw.radii.map(|radius| radius.max(0.0) * scale_factor),
+            ),
+            color: draw.color,
+            border_color: draw.border_color,
+            border: [
+                (draw.border_width.max(0.0) * scale_factor).min(size[0].min(size[1]) * 0.5),
+                0.0,
+                0.0,
+                0.0,
+            ],
+        }
+    }
+
     fn centered(
         viewport: [f32; 2],
         scale_factor: f32,
@@ -201,6 +209,7 @@ pub struct Renderer {
     glyph_quads: Vec<GlyphQuad>,
     text_system: TextSystem,
     text_draws: Vec<TextDraw>,
+    rect_draws: Vec<RectDraw>,
 }
 
 impl Renderer {
@@ -447,6 +456,7 @@ impl Renderer {
             glyph_quads: Vec::new(),
             text_system: TextSystem::new(),
             text_draws: Vec::new(),
+            rect_draws: Vec::new(),
         };
         Ok(renderer)
     }
@@ -472,14 +482,7 @@ impl Renderer {
         self.config.width = size.width;
         self.config.height = size.height;
         self.surface.configure(&self.device, &self.config);
-        self.rect_uniform = RectUniform::centered(
-            [size.width as f32, size.height as f32],
-            self.scale_factor,
-            [400.0, 180.0],
-            45.0,
-            [0.913, 0.332, 0.003, 1.0],
-        );
-        self.upload_rectangles(&[self.rect_uniform]);
+        self.rebuild_rectangles();
         let _ = self.rebuild_text();
         if self.diagnostics {
             eprintln!(
@@ -496,14 +499,7 @@ impl Renderer {
         self.glyph_quads.clear();
         self.glyph_count = 0;
         self.glyph_generation = None;
-        self.rect_uniform = RectUniform::centered(
-            [self.config.width as f32, self.config.height as f32],
-            self.scale_factor,
-            [400.0, 180.0],
-            45.0,
-            [0.913, 0.332, 0.003, 1.0],
-        );
-        self.upload_rectangles(&[self.rect_uniform]);
+        self.rebuild_rectangles();
         let _ = self.rebuild_text();
     }
 
@@ -514,6 +510,35 @@ impl Renderer {
                 .write_buffer(&self.rect_buffer, 0, bytemuck::cast_slice(rectangles));
         }
         self.rectangle_count = rectangles.len() as u32;
+    }
+
+    fn rebuild_rectangles(&mut self) {
+        let viewport = [self.config.width as f32, self.config.height as f32];
+        if self.rect_draws.is_empty() {
+            self.rect_uniform = RectUniform::centered(
+                viewport,
+                self.scale_factor,
+                [400.0, 180.0],
+                45.0,
+                [0.913, 0.332, 0.003, 1.0],
+            );
+            self.upload_rectangles(&[self.rect_uniform]);
+            return;
+        }
+        let rectangles = self
+            .rect_draws
+            .iter()
+            .copied()
+            .map(|draw| RectUniform::from_draw(viewport, self.scale_factor, draw))
+            .collect::<Vec<_>>();
+        self.upload_rectangles(&rectangles);
+    }
+
+    pub fn set_rect_draws(&mut self, draws: &[RectDraw]) {
+        self.rect_draws.clear();
+        self.rect_draws
+            .extend_from_slice(&draws[..draws.len().min(MAX_RECTANGLES)]);
+        self.rebuild_rectangles();
     }
 
     pub fn upload_rasterized_glyph(
@@ -761,7 +786,7 @@ fn aligned_line_start(anchor: f32, width: f32, align: TextAlign, rtl: bool) -> f
 
 #[cfg(test)]
 mod tests {
-    use super::{RectUniform, TextAlign, aligned_line_start};
+    use super::{RectDraw, RectUniform, TextAlign, aligned_line_start};
     use crate::GPU_TEST_LOCK;
     use crate::raster::RoundedRectMask;
     use wgpu::util::DeviceExt;
@@ -1149,6 +1174,26 @@ mod tests {
     }
 
     #[test]
+    fn public_rectangle_draw_converts_logical_geometry_at_renderer_boundary() {
+        let draw = RectDraw {
+            position: [10.5, 20.25],
+            size: [80.0, 40.0],
+            radii: [4.0, 8.0, 12.0, 16.0],
+            color: [0.1, 0.2, 0.3, 1.0],
+            border_width: 2.0,
+            border_color: [0.4, 0.5, 0.6, 1.0],
+        };
+        let uniform = RectUniform::from_draw([800.0, 600.0], 2.0, draw);
+
+        assert_eq!(uniform.position, [21.0, 40.5]);
+        assert_eq!(uniform.size, [160.0, 80.0]);
+        assert_eq!(uniform.radii, [8.0, 16.0, 24.0, 32.0]);
+        assert_eq!(uniform.border[0], 4.0);
+        assert_eq!(uniform.color, draw.color);
+        assert_eq!(uniform.border_color, draw.border_color);
+    }
+
+    #[test]
     fn gpu_renders_inward_border_and_fill_colors() {
         let _guard = GPU_TEST_LOCK.lock().unwrap();
         let dimensions = [64, 32];
@@ -1199,6 +1244,36 @@ mod tests {
         assert_eq!(pixel(14, 16), [255, 0, 0, 255]);
         assert_eq!(pixel(50, 16), [0, 0, 255, 255]);
         assert_eq!(pixel(32, 16), [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn gpu_gallery_panels_are_pixel_mirrors_in_both_color_schemes() {
+        let _guard = GPU_TEST_LOCK.lock().unwrap();
+        let dimensions = [800, 600];
+        let (draws, _) = crate::app::gallery_draws([800.0, 600.0]);
+        let rectangles = draws
+            .into_iter()
+            .map(|draw| RectUniform::from_draw([800.0, 600.0], 1.0, draw))
+            .collect::<Vec<_>>();
+        let pixels = pollster::block_on(render_pixel_batch(dimensions, &rectangles))
+            .unwrap()
+            .pixels;
+        let pixel = |x: u32, y: u32| pixels[(y * dimensions[0] + x) as usize];
+
+        for panel_y in [12..294, 306..588] {
+            for y in panel_y {
+                for local_x in 0..382 {
+                    let ltr = pixel(12 + local_x, y);
+                    let rtl = pixel(406 + 381 - local_x, y);
+                    for (ltr_channel, rtl_channel) in ltr.into_iter().zip(rtl) {
+                        assert!(
+                            ltr_channel.abs_diff(rtl_channel) <= 1,
+                            "x={local_x} y={y} ltr={ltr:?} rtl={rtl:?}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
