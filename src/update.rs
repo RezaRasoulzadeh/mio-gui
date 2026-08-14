@@ -1,6 +1,6 @@
 // update.rs
 
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 use crate::{WidgetId, WidgetTree};
 
@@ -22,6 +22,14 @@ impl Invalidation {
     }
 }
 
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum RedrawRequest {
+    #[default]
+    None,
+    Partial(Vec<WidgetId>),
+    Full,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WidgetMessage<Message> {
     pub target: WidgetId,
@@ -32,6 +40,8 @@ pub struct WidgetMessage<Message> {
 pub struct UpdateQueue<Message> {
     messages: VecDeque<WidgetMessage<Message>>,
     invalidation: Invalidation,
+    full_paint: bool,
+    paint_targets: BTreeSet<WidgetId>,
 }
 
 impl<Message> Default for UpdateQueue<Message> {
@@ -39,6 +49,8 @@ impl<Message> Default for UpdateQueue<Message> {
         Self {
             messages: VecDeque::new(),
             invalidation: Invalidation::None,
+            full_paint: false,
+            paint_targets: BTreeSet::new(),
         }
     }
 }
@@ -50,10 +62,21 @@ impl<Message> UpdateQueue<Message> {
 
     pub fn request_paint(&mut self) {
         self.invalidation = self.invalidation.merge(Invalidation::Paint);
+        self.full_paint = true;
+        self.paint_targets.clear();
+    }
+
+    pub fn request_paint_for(&mut self, target: WidgetId) {
+        if self.invalidation != Invalidation::Layout && !self.full_paint {
+            self.invalidation = Invalidation::Paint;
+            self.paint_targets.insert(target);
+        }
     }
 
     pub fn request_layout(&mut self) {
         self.invalidation = Invalidation::Layout;
+        self.full_paint = false;
+        self.paint_targets.clear();
     }
 
     pub fn pending(&self) -> usize {
@@ -65,16 +88,38 @@ impl<Message> UpdateQueue<Message> {
     }
 
     pub fn take_invalidation(&mut self) -> Invalidation {
-        std::mem::take(&mut self.invalidation)
+        self.take_requests().0
+    }
+
+    pub fn take_redraw_request(&mut self) -> RedrawRequest {
+        self.take_requests().1
+    }
+
+    fn take_requests(&mut self) -> (Invalidation, RedrawRequest) {
+        let invalidation = std::mem::take(&mut self.invalidation);
+        let redraw = match invalidation {
+            Invalidation::None => RedrawRequest::None,
+            Invalidation::Layout => RedrawRequest::Full,
+            Invalidation::Paint if self.full_paint => RedrawRequest::Full,
+            Invalidation::Paint => RedrawRequest::Partial(
+                std::mem::take(&mut self.paint_targets)
+                    .into_iter()
+                    .collect(),
+            ),
+        };
+        self.full_paint = false;
+        self.paint_targets.clear();
+        (invalidation, redraw)
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DispatchReport {
     pub handled: usize,
     pub dropped: usize,
     pub remaining: usize,
     pub invalidation: Invalidation,
+    pub redraw: RedrawRequest,
 }
 
 pub struct UpdateRuntime<State, Message> {
@@ -124,18 +169,20 @@ impl<State, Message> UpdateRuntime<State, Message> {
                 dropped += 1;
             }
         }
+        let (invalidation, redraw) = self.queue.take_requests();
         DispatchReport {
             handled,
             dropped,
             remaining: self.queue.messages.len(),
-            invalidation: self.queue.take_invalidation(),
+            invalidation,
+            redraw,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Invalidation, UpdateQueue, UpdateRuntime};
+    use super::{Invalidation, RedrawRequest, UpdateQueue, UpdateRuntime};
 
     #[derive(Clone, Copy)]
     enum Message {
@@ -213,5 +260,43 @@ mod tests {
         assert_eq!(queue.invalidation(), Invalidation::Layout);
         assert_eq!(queue.take_invalidation(), Invalidation::Layout);
         assert_eq!(queue.invalidation(), Invalidation::None);
+    }
+
+    #[test]
+    fn widget_paint_requests_are_deduplicated_and_deterministic() {
+        let mut runtime = UpdateRuntime::<(), ()>::new(());
+        let root = runtime.tree().root();
+        let first = runtime.tree_mut().append(root, ()).unwrap();
+        let second = runtime.tree_mut().append(root, ()).unwrap();
+        runtime.queue_mut().request_paint_for(second);
+        runtime.queue_mut().request_paint_for(first);
+        runtime.queue_mut().request_paint_for(second);
+
+        assert_eq!(
+            runtime.queue_mut().take_redraw_request(),
+            RedrawRequest::Partial(vec![first, second])
+        );
+        assert_eq!(runtime.queue().invalidation(), Invalidation::None);
+    }
+
+    #[test]
+    fn full_paint_and_layout_dominate_partial_requests() {
+        let mut runtime = UpdateRuntime::<(), ()>::new(());
+        let root = runtime.tree().root();
+        runtime.queue_mut().request_paint_for(root);
+        runtime.queue_mut().request_paint();
+        runtime.queue_mut().request_paint_for(root);
+        assert_eq!(
+            runtime.queue_mut().take_redraw_request(),
+            RedrawRequest::Full
+        );
+
+        runtime.queue_mut().request_paint_for(root);
+        runtime.queue_mut().request_layout();
+        runtime.queue_mut().request_paint_for(root);
+        assert_eq!(
+            runtime.queue_mut().take_redraw_request(),
+            RedrawRequest::Full
+        );
     }
 }

@@ -177,18 +177,19 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [x] Define retained widget tree and stable widget identity
 - [x] Define state ownership and update/message flow
 - [x] Freeze layout geometry, clips, paint order, and hit-testing into one frame snapshot
-- [ ] Implement layout, paint, hit-test, and event phases
-- [ ] Implement invalidation and partial redraw rules
-- [ ] Implement pointer capture
-- [ ] Implement hover, press, release, drag, scroll, and touch events
-- [ ] Route events through nested and clipped widgets
-- [ ] Establish deterministic stacking and hit-test order
-- [ ] Prevent layout and paint mutation from producing inconsistent frames
+- [x] Implement layout, paint, hit-test, and event phases
+- [x] Implement invalidation and partial redraw rules
+- [x] Implement pointer capture
+- [x] Implement hover, press, release, drag, scroll, and touch events
+- [x] Route events through nested and clipped widgets
+- [x] Establish deterministic stacking and hit-test order
+- [x] Prevent layout and paint mutation from producing inconsistent frames
 
 ### Gate
 
-- [ ] Nested interactive rectangles receive correct events after resize and DPI changes
-- [ ] Event routing and hit-testing have automated tests
+- [x] Nested interactive rectangles receive correct events after resize and DPI changes
+- [x] Event routing and hit-testing have automated tests
+- [x] Phase passes only when nested event routing remains stable across resize and DPI changes
 
 ## Phase 5 — Focus, keyboard, and accessibility
 

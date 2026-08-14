@@ -2,7 +2,15 @@
 
 use std::collections::HashMap;
 
-use crate::{ClipRegion, LogicalPoint, LogicalRect, Overflow, WidgetId, WidgetTree};
+use crate::{ClipRegion, LogicalPoint, LogicalRect, Overflow, RedrawRequest, WidgetId, WidgetTree};
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum FrameDamage {
+    #[default]
+    None,
+    Partial(Vec<LogicalRect>),
+    Full,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct WidgetGeometry {
@@ -22,6 +30,7 @@ impl WidgetGeometry {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FrameNode {
     pub id: WidgetId,
+    pub parent: Option<WidgetId>,
     pub bounds: LogicalRect,
     pub clip: ClipRegion<crate::Logical>,
     pub paint_index: usize,
@@ -52,6 +61,7 @@ impl FrameSnapshot {
                 .unwrap_or(own_clip);
             let frame_node = FrameNode {
                 id,
+                parent: parent.map(|parent| parent.id),
                 bounds: geometry.bounds,
                 clip,
                 paint_index: paint_order.len(),
@@ -87,6 +97,18 @@ impl FrameSnapshot {
         &self.paint_order
     }
 
+    pub fn route_to(&self, target: WidgetId) -> Option<Vec<WidgetId>> {
+        let mut route = Vec::new();
+        let mut next = Some(target);
+        while let Some(id) = next {
+            let node = self.nodes.get(&id)?;
+            route.push(id);
+            next = node.parent;
+        }
+        route.reverse();
+        (route.first() == Some(&self.root)).then_some(route)
+    }
+
     pub fn hit_test(&self, point: LogicalPoint) -> Option<WidgetId> {
         self.paint_order.iter().rev().copied().find(|id| {
             let node = self.nodes[id];
@@ -99,12 +121,35 @@ impl FrameSnapshot {
             paint(self.nodes[id]);
         }
     }
+
+    pub fn damage_for(&self, request: &RedrawRequest) -> FrameDamage {
+        match request {
+            RedrawRequest::None => FrameDamage::None,
+            RedrawRequest::Full => FrameDamage::Full,
+            RedrawRequest::Partial(targets) => {
+                let rectangles = targets
+                    .iter()
+                    .filter_map(|target| self.nodes.get(target))
+                    .filter_map(|node| match node.clip {
+                        ClipRegion::Unbounded => Some(node.bounds),
+                        ClipRegion::Rect(clip) => node.bounds.intersection(clip),
+                        ClipRegion::Empty => None,
+                    })
+                    .collect::<Vec<_>>();
+                if rectangles.is_empty() {
+                    FrameDamage::None
+                } else {
+                    FrameDamage::Partial(rectangles)
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{FrameSnapshot, WidgetGeometry};
-    use crate::{ClipRegion, LogicalPoint, LogicalRect, Overflow, WidgetTree};
+    use super::{FrameDamage, FrameSnapshot, WidgetGeometry};
+    use crate::{ClipRegion, LogicalPoint, LogicalRect, Overflow, RedrawRequest, WidgetTree};
 
     #[test]
     fn paint_and_hit_test_use_opposite_deterministic_stacking_order() {
@@ -211,5 +256,69 @@ mod tests {
         snapshot.paint(|node| painted.push(node.id));
 
         assert_eq!(painted, [root, child]);
+    }
+
+    #[test]
+    fn route_uses_frozen_parent_chain() {
+        let mut tree = WidgetTree::new(());
+        let root = tree.root();
+        let parent = tree.append(root, ()).unwrap();
+        let child = tree.append(parent, ()).unwrap();
+        let snapshot = FrameSnapshot::build(&tree, |_, _| {
+            WidgetGeometry::new(LogicalRect::from_xywh(0.0, 0.0, 10.0, 10.0))
+        });
+        tree.reparent(child, root, 1).unwrap();
+
+        assert_eq!(snapshot.route_to(child), Some(vec![root, parent, child]));
+    }
+
+    #[test]
+    fn partial_damage_uses_frozen_clipped_widget_bounds() {
+        let mut tree = WidgetTree::new(());
+        let root = tree.root();
+        let parent = tree.append(root, ()).unwrap();
+        let child = tree.append(parent, ()).unwrap();
+        let snapshot = FrameSnapshot::build(&tree, |id, _| {
+            if id == root {
+                WidgetGeometry::new(LogicalRect::from_xywh(0.0, 0.0, 100.0, 100.0))
+            } else if id == parent {
+                WidgetGeometry {
+                    bounds: LogicalRect::from_xywh(10.0, 10.0, 30.0, 30.0),
+                    overflow: Overflow::Clip,
+                }
+            } else {
+                WidgetGeometry::new(LogicalRect::from_xywh(30.0, 20.0, 30.0, 20.0))
+            }
+        });
+
+        assert_eq!(
+            snapshot.damage_for(&RedrawRequest::Partial(vec![child])),
+            FrameDamage::Partial(vec![LogicalRect::from_xywh(30.0, 20.0, 10.0, 20.0)])
+        );
+    }
+
+    #[test]
+    fn missing_or_fully_clipped_widgets_add_no_damage() {
+        let mut tree = WidgetTree::new(());
+        let root = tree.root();
+        let hidden = tree.append(root, ()).unwrap();
+        let snapshot = FrameSnapshot::build(&tree, |id, _| {
+            if id == root {
+                WidgetGeometry {
+                    bounds: LogicalRect::from_xywh(0.0, 0.0, 0.0, 0.0),
+                    overflow: Overflow::Clip,
+                }
+            } else {
+                WidgetGeometry::new(LogicalRect::from_xywh(0.0, 0.0, 20.0, 20.0))
+            }
+        });
+        tree.remove_subtree(hidden).unwrap();
+
+        assert_eq!(
+            snapshot.damage_for(&RedrawRequest::Partial(vec![hidden])),
+            FrameDamage::None
+        );
+        assert_eq!(snapshot.damage_for(&RedrawRequest::None), FrameDamage::None);
+        assert_eq!(snapshot.damage_for(&RedrawRequest::Full), FrameDamage::Full);
     }
 }

@@ -11,6 +11,11 @@ impl WidgetId {
     pub const fn get(self) -> u64 {
         self.0
     }
+
+    #[cfg(test)]
+    pub(crate) const fn from_test_value(value: u64) -> Self {
+        Self(value)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
