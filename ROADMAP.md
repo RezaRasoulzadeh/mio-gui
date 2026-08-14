@@ -175,7 +175,8 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 ## Phase 4 — Runtime, widget tree, and events
 
 - [x] Define retained widget tree and stable widget identity
-- [ ] Define state ownership and update/message flow
+- [x] Define state ownership and update/message flow
+- [x] Freeze layout geometry, clips, paint order, and hit-testing into one frame snapshot
 - [ ] Implement layout, paint, hit-test, and event phases
 - [ ] Implement invalidation and partial redraw rules
 - [ ] Implement pointer capture

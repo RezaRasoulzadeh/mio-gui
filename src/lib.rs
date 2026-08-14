@@ -2,6 +2,7 @@
 mod app;
 mod clipboard;
 mod digit_format;
+mod frame;
 mod geometry;
 mod glyph_atlas;
 mod layout;
@@ -10,6 +11,7 @@ mod raster;
 mod renderer;
 mod text;
 mod text_edit;
+mod update;
 mod widget_tree;
 
 #[cfg(test)]
@@ -18,6 +20,7 @@ pub(crate) static GPU_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(()
 pub use app::run;
 pub use clipboard::{ClipboardError, SystemClipboard, TextClipboard};
 pub use digit_format::DecimalDigitSet;
+pub use frame::{FrameNode, FrameSnapshot, WidgetGeometry};
 pub use geometry::{
     ClipRegion, ClipStack, Constraints, Edges, Logical, LogicalConstraints, LogicalEdges,
     LogicalPoint, LogicalRect, LogicalSize, LogicalTransform, Overflow, Physical, PhysicalEdges,
@@ -36,4 +39,5 @@ pub use text::{
     TextStyle, TextSystem,
 };
 pub use text_edit::TextEditState;
+pub use update::{DispatchReport, Invalidation, UpdateQueue, UpdateRuntime, WidgetMessage};
 pub use widget_tree::{WidgetId, WidgetNode, WidgetTree, WidgetTreeError};

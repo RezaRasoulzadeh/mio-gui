@@ -48,12 +48,12 @@ flowchart TB
         bidi["Unicode bidi resolution"]
     end
 
-    subgraph layout["Layout (planned)"]
+    subgraph layout["Layout"]
         direction["Direction::Ltr / Direction::Rtl — cascading"]
         geometry["logical → physical geometry"]
     end
 
-    subgraph widgets["Widgets (planned)"]
+    subgraph widgets["Widgets (in progress)"]
         tree["retained widget tree"]
         daisy["DaisyUI-vocabulary components"]
     end
@@ -67,11 +67,11 @@ flowchart TB
     direction -.cascades into.-> geometry
     geometry -.resolves into.-> wgsl
 
-    style layout fill:#1f1300,stroke:#e9540b,stroke-dasharray: 4 3
     style widgets fill:#1f1300,stroke:#e9540b,stroke-dasharray: 4 3
+    style daisy fill:#1f1300,stroke:#e9540b,stroke-dasharray: 4 3
 ```
 
-Solid boxes exist today. Dashed boxes are architected — direction is a settled [decision record](docs/decisions/0002-direction-model.md) — but not yet implemented.
+Solid boxes exist today. Layout is fully implemented and gated closed (Phase 3). The widget tree's identity model has landed; DaisyUI-vocabulary components (dashed) are not yet started.
 
 ## Where things stand
 
@@ -83,7 +83,7 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 | 1 | Window + renderer foundation, rounded-rect primitive | ![90%](https://progress-bar.xyz/90/?width=120&color=e9540b) |
 | 2 | Text & font system (`cosmic-text`, bidi, shaping) | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 3 | Core geometry & direction-aware layout | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
-| 4 | Widget tree, hit-testing, events | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
+| 4 | Widget tree, hit-testing, events | ![9%](https://progress-bar.xyz/9/?width=120&color=e9540b) |
 | 5 | Focus, keyboard, accessibility | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 6 | Theme & style tokens | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 7 | Foundational widgets | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
@@ -92,7 +92,7 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 | 10 | Performance & reliability | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 11 | Public API & distribution | ![27%](https://progress-bar.xyz/27/?width=120&color=e9540b) |
 
-Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s own gate checklist passes. Phase 2's text correctness gate is complete: deterministic bundled fallbacks, bidi shaping, RTL and LTR interaction geometry, IME state, clipboard integration, atlas management, and independent reference comparison are in. Phase 3's direction-aware geometry and layout is the next implementation front while Phase 1's remaining cross-platform renderer checks stay visible.
+Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s own gate checklist passes. Phase 2's text correctness gate is complete: deterministic bundled fallbacks, bidi shaping, RTL and LTR interaction geometry, IME state, clipboard integration, atlas management, and independent reference comparison are in. Phase 3's direction-aware geometry and layout gate is also complete: cascading `Direction::Ltr`/`Rtl`, row/column layout, gap/padding/margin/alignment, RTL-mirrored placement, and nested-direction resolution are all implemented and tested. Phase 4 (retained widget tree, hit-testing, event flow) is now the active implementation front, with the widget tree's identity model landed first, while Phase 1's remaining cross-platform renderer checks stay visible.
 
 ## What's actually implemented right now
 
@@ -100,12 +100,15 @@ Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s ow
 - A batched `wgpu` render pipeline drawing analytic rounded rectangles with independent corner radii, inward borders, sub-pixel and fractional-scale-factor correctness, and derivative-based antialiasing ([`src/renderer.rs`](src/renderer.rs), [`docs/geometry.md`](docs/geometry.md))
 - Coalesced resize handling — a burst of `Resized` events collapses into a single surface reconfigure against the latest size, instead of one expensive reconfigure per event
 - CPU-vs-GPU golden-image testing for the rounded-rect primitive across radii and scale factors ([`tests/goldens/`](tests/goldens/), [`docs/render-testing.md`](docs/render-testing.md))
-- `cosmic-text` integration with Unicode bidi shaping, RTL/LTR interaction geometry, bounded shape and raster caches, a GPU glyph atlas, bundled Vazirmatn and deterministic Noto fallbacks, locale-explicit digit formatting, IME state, and clipboard operations ([`src/text.rs`](src/text.rs), [`assets/fonts/`](assets/fonts/))
+- `cosmic-text` integration with Unicode bidi shaping, RTL/LTR interaction geometry, bounded shape and raster caches, a GPU glyph atlas, bundled Vazirmatn and deterministic Noto fallbacks, locale-explicit digit formatting, IME state, and clipboard operations ([`src/text.rs`](src/text.rs), [`src/text_edit.rs`](src/text_edit.rs), [`src/digit_format.rs`](src/digit_format.rs), [`src/clipboard.rs`](src/clipboard.rs), [`assets/fonts/`](assets/fonts/))
+- Direction-neutral core geometry — point, size, rectangle, edges, constraints, and transforms, with logical/physical coordinate separation and defined layout-to-render rounding rules ([`src/geometry.rs`](src/geometry.rs), [`docs/geometry.md`](docs/geometry.md))
+- Direction-aware row/column layout — cascading `Direction::Ltr`/`Rtl`, gap, padding, margin, min/max size, alignment, and RTL-mirrored placement without reversing semantic child order ([`src/layout.rs`](src/layout.rs), [`src/linear_layout.rs`](src/linear_layout.rs), [`docs/layout.md`](docs/layout.md))
+- A retained widget tree with stable widget identity, the first piece of Phase 4's runtime ([`src/widget_tree.rs`](src/widget_tree.rs))
 - A documented diagnostics path (`MIO_GUI_DIAGNOSTICS=1`) for surface lifecycle and presentation timing, used to debug real resize/maximize behavior across Ubuntu and macOS ([`docs/window-resize.md`](docs/window-resize.md), [`docs/errors-and-diagnostics.md`](docs/errors-and-diagnostics.md))
 
 ## Not yet — by design
 
-Direction-aware layout, the widget tree, theming, and every DaisyUI-vocabulary component are **deliberately unstarted**. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component only gets promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
+The widget tree's state/message flow, hit-testing, event phases, focus, keyboard handling, accessibility, theming, and every DaisyUI-vocabulary component are **deliberately unstarted or early**. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component only gets promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
 
 ## Tech stack
 
