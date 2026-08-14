@@ -81,8 +81,8 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 |---|---|---|
 | 0 | Engineering baseline (CI, lints, MSRV, ADRs) | ![89%](https://progress-bar.xyz/89/?width=120&color=e9540b) |
 | 1 | Window + renderer foundation, rounded-rect primitive | ![90%](https://progress-bar.xyz/90/?width=120&color=e9540b) |
-| 2 | Text & font system (`cosmic-text`, bidi, shaping) | ![19%](https://progress-bar.xyz/19/?width=120&color=e9540b) |
-| 3 | Core geometry & direction-aware layout | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
+| 2 | Text & font system (`cosmic-text`, bidi, shaping) | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
+| 3 | Core geometry & direction-aware layout | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 4 | Widget tree, hit-testing, events | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 5 | Focus, keyboard, accessibility | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 6 | Theme & style tokens | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
@@ -92,15 +92,15 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 | 10 | Performance & reliability | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 11 | Public API & distribution | ![27%](https://progress-bar.xyz/27/?width=120&color=e9540b) |
 
-Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s own gate checklist passes on Windows, Linux, and macOS. Right now that means: **Phase 1 is nearly closed out**, and **Phase 2 (text)** is the active front — shaping, caching, and glyph-atlas plumbing are in, bidi and RTL/Arabic contextual shaping are not yet.
+Phases are gated — Phase *n+1* doesn't get real attention until Phase *n*'s own gate checklist passes. Phase 2's text correctness gate is complete: deterministic bundled fallbacks, bidi shaping, RTL and LTR interaction geometry, IME state, clipboard integration, atlas management, and independent reference comparison are in. Phase 3's direction-aware geometry and layout is the next implementation front while Phase 1's remaining cross-platform renderer checks stay visible.
 
 ## What's actually implemented right now
 
 - A `winit`-driven window with typed, non-panicking error handling on window/adapter/device failure ([`src/app.rs`](src/app.rs))
-- A `wgpu` render pipeline drawing a **single analytic rounded rectangle**: independent corner radii, inward borders, sub-pixel and fractional-scale-factor correctness, derivative-based antialiasing ([`src/renderer.rs`](src/renderer.rs), [`docs/geometry.md`](docs/geometry.md))
+- A batched `wgpu` render pipeline drawing analytic rounded rectangles with independent corner radii, inward borders, sub-pixel and fractional-scale-factor correctness, and derivative-based antialiasing ([`src/renderer.rs`](src/renderer.rs), [`docs/geometry.md`](docs/geometry.md))
 - Coalesced resize handling — a burst of `Resized` events collapses into a single surface reconfigure against the latest size, instead of one expensive reconfigure per event
 - CPU-vs-GPU golden-image testing for the rounded-rect primitive across radii and scale factors ([`tests/goldens/`](tests/goldens/), [`docs/render-testing.md`](docs/render-testing.md))
-- `cosmic-text` integration: shaped-run caching, rasterized-glyph caching, font size/weight/style/line-height/letter-spacing — bundled with [Vazirmatn](assets/fonts/vazirmatn/), an OFL-licensed Persian/Latin typeface ([`src/text.rs`](src/text.rs))
+- `cosmic-text` integration with Unicode bidi shaping, RTL/LTR interaction geometry, bounded shape and raster caches, a GPU glyph atlas, bundled Vazirmatn and deterministic Noto fallbacks, locale-explicit digit formatting, IME state, and clipboard operations ([`src/text.rs`](src/text.rs), [`assets/fonts/`](assets/fonts/))
 - A documented diagnostics path (`MIO_GUI_DIAGNOSTICS=1`) for surface lifecycle and presentation timing, used to debug real resize/maximize behavior across Ubuntu and macOS ([`docs/window-resize.md`](docs/window-resize.md), [`docs/errors-and-diagnostics.md`](docs/errors-and-diagnostics.md))
 
 ## Not yet — by design

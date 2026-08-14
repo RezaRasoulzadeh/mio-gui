@@ -246,8 +246,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{AtlasInsert, AtlasRegion, GlyphAtlas, padded_rgba};
-    use crate::{GlyphImageContent, RasterizedGlyph};
+    use super::{AtlasInsert, AtlasRegion, GlyphAtlas, GpuGlyphAtlas, padded_rgba};
+    use crate::{GlyphImageContent, RasterizedGlyph, TextSystem};
 
     #[test]
     fn packs_padded_glyphs_without_overlap() {
@@ -357,5 +357,74 @@ mod tests {
         };
 
         assert!(padded_rgba(&glyph, 1).is_none());
+    }
+
+    #[test]
+    fn gpu_atlas_rebuilds_one_complete_generation_after_eviction() {
+        let _guard = crate::GPU_TEST_LOCK.lock().unwrap();
+        pollster::block_on(async {
+            let instance = wgpu::Instance::default();
+            let adapter = instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::LowPower,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                    apply_limit_buckets: false,
+                })
+                .await
+                .unwrap();
+            let (device, queue) = adapter
+                .request_device(&wgpu::DeviceDescriptor::default())
+                .await
+                .unwrap();
+            let mut text_system = TextSystem::new();
+            let line = text_system.shape_line("ABC", 16.0, 24.0);
+            let keys = line
+                .glyphs
+                .iter()
+                .map(|glyph| glyph.raster.atlas_key(1.0))
+                .collect::<Vec<_>>();
+            let image = RasterizedGlyph {
+                left: 0,
+                top: 0,
+                width: 6,
+                height: 6,
+                content: GlyphImageContent::Mask,
+                data: vec![255; 36],
+            };
+            let mut atlas = GpuGlyphAtlas::new(&device, 16, 8, 1);
+
+            assert!(matches!(
+                atlas.upload(&queue, keys[0], &image),
+                Some(AtlasInsert::Inserted(AtlasRegion { generation: 0, .. }))
+            ));
+            assert!(matches!(
+                atlas.upload(&queue, keys[1], &image),
+                Some(AtlasInsert::Inserted(AtlasRegion { generation: 0, .. }))
+            ));
+            assert!(matches!(
+                atlas.upload(&queue, keys[2], &image),
+                Some(AtlasInsert::ResetAndInserted(AtlasRegion {
+                    generation: 1,
+                    ..
+                }))
+            ));
+            assert!(matches!(
+                atlas.upload(&queue, keys[0], &image),
+                Some(AtlasInsert::Inserted(AtlasRegion { generation: 1, .. }))
+            ));
+            assert!(matches!(
+                atlas.upload(&queue, keys[2], &image),
+                Some(AtlasInsert::Existing(AtlasRegion { generation: 1, .. }))
+            ));
+
+            let submission = queue.submit([]);
+            device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: None,
+                })
+                .unwrap();
+        });
     }
 }

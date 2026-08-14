@@ -8,6 +8,28 @@ The renderer uses physical pixels for surface dimensions, GPU geometry, signed-d
 
 The origin is at the top-left of the content area. X increases toward the physical right and Y increases downward. Rendering geometry is direction-neutral. RTL and LTR layout resolve logical start and end positions before geometry reaches the renderer.
 
+Logical and physical values use different Rust coordinate-space types. A validated, finite, positive `ScaleFactor` is required to cross that boundary. Conversion preserves fractional coordinates in both directions; layout does not snap merely because a value reaches the renderer.
+
+## Pixel rounding
+
+Analytic drawing uses unsnapped physical floating-point geometry so fractional positions, sizes, radii, and borders retain correct antialias coverage.
+
+Operations that require integral pixel boundaries choose an explicit `PixelSnap` policy:
+
+- `Nearest` rounds each rectangle boundary independently to its nearest physical pixel.
+- `Outward` floors the minimum boundaries and ceils the maximum boundaries. Clip and scissor allocation uses this policy so covered pixels are never discarded.
+- `Inward` ceils the minimum boundaries and floors the maximum boundaries. This is only for callers that require pixels wholly contained by a rectangle.
+
+Rounding boundaries instead of independently rounding origin and size prevents accumulated edge disagreement between adjacent rectangles. Hit-testing uses unsnapped logical geometry.
+
+## Overflow and clipping
+
+`Overflow::Visible` produces an unbounded clip region. `Overflow::Clip` produces the element's rectangular bounds, or an empty region when either bound dimension is zero.
+
+Nested clips intersect immediately through `ClipStack`. Empty regions remain empty, unbounded regions adopt the other operand, and disjoint rectangles become empty. Popping restores the exact parent clip and cannot remove the unbounded root.
+
+Clip regions follow affine transforms by taking the axis-aligned bounding box of all four transformed corners. At the GPU boundary, a physical clip intersects the viewport first and then rounds outward to an integer `PhysicalPixelRect`; wholly offscreen and zero-area clips produce no scissor rectangle.
+
 ## Rectangle boundaries
 
 A rectangle is represented by a top-left position and a non-negative size. Position denotes the outer boundary rather than the center of a pixel. The opposite boundary is `position + size`.

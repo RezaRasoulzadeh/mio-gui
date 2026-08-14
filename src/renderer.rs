@@ -4,7 +4,7 @@ use std::{error::Error, fmt};
 use winit::window::Window;
 
 use crate::glyph_atlas::{AtlasInsert, GpuGlyphAtlas};
-use crate::text::{RasterizedGlyph, ShapedGlyph, TextSystem};
+use crate::text::{RasterizedGlyph, ShapedGlyph, TextStyle, TextSystem};
 
 const MAX_RECTANGLES: usize = 1024;
 const MAX_GLYPHS: usize = 4096;
@@ -26,6 +26,23 @@ pub struct GlyphQuad {
     pub position: [f32; 2],
     pub size: [f32; 2],
     pub atlas: GlyphAtlasPlacement,
+    pub color: [f32; 4],
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TextAlign {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextDraw {
+    pub text: String,
+    pub style: TextStyle,
+    pub baseline: [f32; 2],
+    pub align: TextAlign,
     pub color: [f32; 4],
 }
 
@@ -183,6 +200,7 @@ pub struct Renderer {
     glyph_generation: Option<u64>,
     glyph_quads: Vec<GlyphQuad>,
     text_system: TextSystem,
+    text_draws: Vec<TextDraw>,
 }
 
 impl Renderer {
@@ -407,7 +425,7 @@ impl Renderer {
             cache: None,
         });
 
-        let mut renderer = Self {
+        let renderer = Self {
             surface,
             device,
             queue,
@@ -428,8 +446,8 @@ impl Renderer {
             glyph_generation: None,
             glyph_quads: Vec::new(),
             text_system: TextSystem::new(),
+            text_draws: Vec::new(),
         };
-        renderer.rebuild_demo_text();
         Ok(renderer)
     }
 
@@ -462,7 +480,7 @@ impl Renderer {
             [0.913, 0.332, 0.003, 1.0],
         );
         self.upload_rectangles(&[self.rect_uniform]);
-        self.rebuild_demo_text();
+        let _ = self.rebuild_text();
         if self.diagnostics {
             eprintln!(
                 "surface_configured t_us={} configured={}x{}",
@@ -486,7 +504,7 @@ impl Renderer {
             [0.913, 0.332, 0.003, 1.0],
         );
         self.upload_rectangles(&[self.rect_uniform]);
-        self.rebuild_demo_text();
+        let _ = self.rebuild_text();
     }
 
     fn upload_rectangles(&mut self, rectangles: &[RectUniform]) {
@@ -569,84 +587,75 @@ impl Renderer {
         true
     }
 
-    fn rebuild_demo_text(&mut self) {
+    pub fn set_text_draws(&mut self, draws: &[TextDraw]) -> bool {
+        self.text_draws = draws.to_vec();
+        self.rebuild_text()
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
+    }
+
+    fn rebuild_text(&mut self) -> bool {
         let scale_factor = self.scale_factor;
-        let samples = [
-            ("رابط کاربری راست‌به‌چپ", -38.0),
-            ("Mio-GUI left-to-right", 0.0),
-            ("نسخه Mio-GUI 2", 38.0),
-        ];
-        let mut quads = Vec::new();
-        for (text, baseline_offset) in samples {
-            let line = self.text_system.shape_line(text, 20.0, 28.0);
-            let glyph_count = line.glyphs.len();
-            let line_start = (self.config.width as f32 - line.width * scale_factor) * 0.5;
-            let baseline = self.config.height as f32 * 0.5 + baseline_offset * scale_factor;
-            let quads_before = quads.len();
+        let draws = self.text_draws.clone();
+        let mut prepared = Vec::new();
+        for draw in draws {
+            let line = self
+                .text_system
+                .shape_line_with_style(&draw.text, &draw.style);
+            let anchor = draw.baseline[0] * scale_factor;
+            let line_width = line.width * scale_factor;
+            let line_start = aligned_line_start(anchor, line_width, draw.align, line.rtl);
+            let baseline = draw.baseline[1] * scale_factor;
             for glyph in &line.glyphs {
                 let Some(image) = self.text_system.rasterize_glyph(glyph, scale_factor) else {
                     continue;
                 };
-                let Some(atlas) = self.upload_rasterized_glyph(glyph, scale_factor, &image) else {
+                let position = [
+                    line_start + glyph.x * scale_factor + image.left as f32,
+                    baseline - image.top as f32,
+                ];
+                prepared.push((glyph.clone(), image, position, draw.color));
+            }
+        }
+        self.submit_prepared_glyphs(&prepared, scale_factor)
+    }
+
+    fn submit_prepared_glyphs(
+        &mut self,
+        prepared: &[(ShapedGlyph, RasterizedGlyph, [f32; 2], [f32; 4])],
+        scale_factor: f32,
+    ) -> bool {
+        for attempt in 0..2 {
+            let mut quads = Vec::with_capacity(prepared.len());
+            let mut restart = false;
+            for (glyph, image, position, color) in prepared {
+                let Some(atlas) = self.upload_rasterized_glyph(glyph, scale_factor, image) else {
                     continue;
                 };
+                if atlas.atlas_reset && !quads.is_empty() {
+                    restart = true;
+                    break;
+                }
                 quads.push(GlyphQuad {
-                    position: [
-                        line_start + glyph.x * scale_factor + image.left as f32,
-                        baseline - image.top as f32,
-                    ],
+                    position: *position,
                     size: [image.width as f32, image.height as f32],
                     atlas,
-                    color: [0.08, 0.07, 0.05, 1.0],
+                    color: *color,
                 });
             }
-            if self.diagnostics {
-                let prepared = &quads[quads_before..];
-                let bounds = prepared.iter().fold(
-                    [
-                        f32::INFINITY,
-                        f32::INFINITY,
-                        f32::NEG_INFINITY,
-                        f32::NEG_INFINITY,
-                    ],
-                    |bounds, quad| {
-                        [
-                            bounds[0].min(quad.position[0]),
-                            bounds[1].min(quad.position[1]),
-                            bounds[2].max(quad.position[0] + quad.size[0]),
-                            bounds[3].max(quad.position[1] + quad.size[1]),
-                        ]
-                    },
-                );
-                let atlas_bounds =
-                    prepared
-                        .iter()
-                        .fold([u32::MAX, u32::MAX, 0, 0], |bounds, quad| {
-                            [
-                                bounds[0].min(quad.atlas.x),
-                                bounds[1].min(quad.atlas.y),
-                                bounds[2].max(quad.atlas.x + quad.atlas.width),
-                                bounds[3].max(quad.atlas.y + quad.atlas.height),
-                            ]
-                        });
-                eprintln!(
-                    "text_prepared text={text:?} shaped_glyphs={glyph_count} prepared_quads={} bounds={bounds:?} atlas_bounds={atlas_bounds:?}",
-                    quads.len() - quads_before,
-                );
+            if !restart {
+                return self.set_glyph_quads(&quads);
+            }
+            if attempt == 1 {
+                break;
             }
         }
-        let submitted = self.set_glyph_quads(&quads);
-        if self.diagnostics {
-            eprintln!(
-                "text_submitted quads={} submitted={submitted} generation={:?}",
-                quads.len(),
-                self.glyph_generation,
-            );
-        }
-        assert!(
-            submitted,
-            "demo text contains incompatible atlas generations"
-        );
+        self.glyph_count = 0;
+        self.glyph_generation = None;
+        self.glyph_quads.clear();
+        false
     }
 
     pub fn render(&mut self) -> Result<(), RenderError> {
@@ -740,15 +749,22 @@ impl Renderer {
     }
 }
 
+fn aligned_line_start(anchor: f32, width: f32, align: TextAlign, rtl: bool) -> f32 {
+    match align {
+        TextAlign::Center => anchor - width * 0.5,
+        TextAlign::Start if rtl => anchor - width,
+        TextAlign::Start => anchor,
+        TextAlign::End if rtl => anchor,
+        TextAlign::End => anchor - width,
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
-    use super::RectUniform;
+    use super::{RectUniform, TextAlign, aligned_line_start};
+    use crate::GPU_TEST_LOCK;
     use crate::raster::RoundedRectMask;
     use wgpu::util::DeviceExt;
-
-    static GPU_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     struct GpuCapture {
         pixels: Vec<[u8; 4]>,
@@ -991,6 +1007,41 @@ mod tests {
     #[test]
     fn uniform_layout_has_expected_size() {
         assert_eq!(std::mem::size_of::<RectUniform>(), 96);
+    }
+
+    #[test]
+    fn resolves_logical_text_alignment_for_ltr_and_rtl() {
+        let anchor = 100.0;
+        let width = 40.0;
+
+        assert_eq!(
+            aligned_line_start(anchor, width, TextAlign::Start, false),
+            100.0
+        );
+        assert_eq!(
+            aligned_line_start(anchor, width, TextAlign::End, false),
+            60.0
+        );
+        assert_eq!(
+            aligned_line_start(anchor, width, TextAlign::Start, true),
+            60.0
+        );
+        assert_eq!(
+            aligned_line_start(anchor, width, TextAlign::End, true),
+            100.0
+        );
+    }
+
+    #[test]
+    fn centered_text_alignment_is_direction_independent() {
+        assert_eq!(
+            aligned_line_start(100.0, 40.0, TextAlign::Center, false),
+            80.0
+        );
+        assert_eq!(
+            aligned_line_start(100.0, 40.0, TextAlign::Center, true),
+            80.0
+        );
     }
 
     #[test]

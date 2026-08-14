@@ -97,72 +97,84 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 
 - [x] Integrate `cosmic-text`
 - [x] Load bundled and system fonts
-- [ ] Implement deterministic fallback chains
+- [x] Resolve missing requested families deterministically to bundled Vazirmatn
+- [x] Expose source-range-safe missing-glyph diagnostics for fallback coverage
+- [x] Bundle deterministic cross-script fallback families beyond Vazirmatn coverage
 - [x] Cache shaped runs with bounded storage and font-change invalidation
 - [x] Cache rasterized glyphs for atlas reuse
 - [x] Build and update a GPU glyph atlas
-- [ ] Handle atlas eviction without visible corruption
+- [x] Handle atlas eviction without visible corruption
 - [x] Support font size, weight, style, line height, and letter spacing
 
 ### Unicode and bidi
 
-- [ ] Shape Persian and Arabic contextual forms correctly
-- [ ] Resolve Unicode bidi paragraphs
-- [ ] Render mixed Persian, Arabic, English, numbers, and punctuation
-- [ ] Support explicit LTR, RTL, and automatic base direction
-- [ ] Preserve combining marks and grapheme clusters
-- [ ] Handle neutral characters and paired punctuation correctly
-- [ ] Apply mirrored glyphs where Unicode requires them
-- [ ] Define digit policy without assuming Persian or Latin digits globally
+- [x] Shape Persian contextual forms correctly
+- [x] Shape Arabic contextual forms correctly
+- [x] Resolve automatic Unicode bidi paragraphs
+- [x] Render mixed Persian, English, numbers, and punctuation
+- [x] Render mixed Arabic, English, numbers, and punctuation
+- [x] Support explicit LTR, RTL, and automatic base direction
+- [x] Preserve combining marks in shaped clusters
+- [x] Preserve extended grapheme clusters during interaction
+- [x] Handle neutral characters and paired punctuation correctly
+- [x] Apply mirrored glyphs where Unicode requires them
+- [x] Preserve source digits by default without assuming a global digit set
+- [x] Add explicit locale-driven digit formatting outside text shaping
 
 ### Text interaction
 
-- [ ] Map pointer positions to grapheme-aware text positions
-- [ ] Map logical text positions to visual positions
-- [ ] Implement bidi-aware selection ranges
-- [ ] Implement caret movement in logical and visual directions
-- [ ] Support copy, cut, paste, and platform input methods
-- [ ] Support composition/pre-edit text
+- [x] Map pointer positions to shaped-cluster-aware text positions
+- [x] Map pointer positions to extended grapheme-aware text positions
+- [x] Map shaped-cluster text positions to visual caret positions
+- [x] Implement bidi-aware selection-range geometry
+- [x] Implement shaped-cluster caret movement in logical and visual directions
+- [x] Implement grapheme-safe copy, cut, and paste editing operations
+- [x] Connect copy, cut, and paste to platform clipboards
+- [x] Connect platform input methods through `winit` IME events
+- [x] Implement platform-independent composition/pre-edit state
+- [x] Connect composition/pre-edit state to platform IME events
 
 ### Tests and gate
 
-- [ ] Maintain corpus tests for Persian, Arabic, English, and mixed-direction text
-- [ ] Add golden images using bundled test fonts
-- [ ] Compare shaping output with known-good reference applications
-- [ ] Confirm identical line metrics across supported platforms when bundled fonts are used
-- [ ] Phase passes only when shaped Persian text and mixed-direction text are correct
+- [x] Maintain corpus tests for Persian, Arabic, English, and mixed-direction text
+- [x] Add deterministic raster-mask goldens using bundled test fonts
+- [x] Compare shaping output with known-good reference applications
+  - [x] Add a deterministic headless shaping report and comparison checklist
+  - [x] Record independent reference results for Persian, Arabic, and mixed-direction fixtures
+- [x] Lock bundled-font line metrics for cross-platform CI comparison
+- [x] Phase passes only when shaped Persian text and mixed-direction text are correct
 
 ## Phase 3 — Core geometry and layout
 
 ### Geometry
 
-- [ ] Implement point, size, rectangle, edges, constraints, and transforms
-- [ ] Separate logical and physical coordinate types
-- [ ] Define rounding rules for layout-to-render conversion
-- [ ] Implement overflow and clipping primitives
+- [x] Implement point, size, rectangle, edges, constraints, and transforms
+- [x] Separate logical and physical coordinate types
+- [x] Define rounding rules for layout-to-render conversion
+- [x] Implement overflow and clipping primitives
 
 ### Direction-aware layout
 
-- [ ] Implement cascading `Direction::Ltr` and `Direction::Rtl`
-- [ ] Use inline/block and start/end concepts internally
-- [ ] Implement row and column layout
-- [ ] Implement gap, padding, margin, min/max size, and alignment
-- [ ] Reverse row placement in RTL without reversing semantic child order
-- [ ] Resolve start/end alignment from inherited direction
-- [ ] Mirror logical padding and margin correctly
-- [ ] Keep explicitly physical properties available for exceptional cases
-- [ ] Define nested LTR-inside-RTL and RTL-inside-LTR behavior
+- [x] Implement cascading `Direction::Ltr` and `Direction::Rtl`
+- [x] Use inline/block and start/end concepts internally
+- [x] Implement row and column layout
+- [x] Implement gap, padding, margin, min/max size, and alignment
+- [x] Reverse row placement in RTL without reversing semantic child order
+- [x] Resolve start/end alignment from inherited direction
+- [x] Mirror logical padding and margin correctly
+- [x] Keep explicitly physical properties available for exceptional cases
+- [x] Define nested LTR-inside-RTL and RTL-inside-LTR behavior
 
 ### Tests and gate
 
-- [ ] Unit-test every logical-to-physical mapping
-- [ ] Mirror complete layout fixtures and compare their geometry
-- [ ] Test nesting, overflow, fractional sizes, and constrained layouts
-- [ ] Phase passes only when an LTR fixture and its RTL mirror are structurally equivalent
+- [x] Unit-test every logical-to-physical mapping
+- [x] Mirror complete layout fixtures and compare their geometry
+- [x] Test nesting, overflow, fractional sizes, and constrained layouts
+- [x] Phase passes only when an LTR fixture and its RTL mirror are structurally equivalent
 
 ## Phase 4 — Runtime, widget tree, and events
 
-- [ ] Define retained widget tree and stable widget identity
+- [x] Define retained widget tree and stable widget identity
 - [ ] Define state ownership and update/message flow
 - [ ] Implement layout, paint, hit-test, and event phases
 - [ ] Implement invalidation and partial redraw rules
