@@ -241,12 +241,12 @@ Every phase is gated. Do not start the next phase until the current phase's acce
   - [x] Define static-text accessibility semantics
   - [x] Connect the widget through the retained layout and render path
   - [x] Add widget-level visual goldens and a minimal example
-- [ ] Icon and image
+- [x] Icon and image
   - [x] Define validated backend-neutral pixel image resources and image paint descriptions
   - [x] Define image sizing, fitting, logical alignment, explicit RTL mirroring, and semantics
-  - [ ] Connect image and icon variants through retained rendering
-  - [ ] Add image/icon visual goldens and minimal examples
-- [ ] Spacer and divider
+  - [x] Connect image and icon variants through retained rendering
+  - [x] Add image/icon visual goldens and minimal examples
+- [x] Spacer and divider
 - [ ] Container and surface
 - [ ] Row, column, stack, and scroll view
 - [ ] Button and icon button

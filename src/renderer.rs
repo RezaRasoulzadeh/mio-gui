@@ -5,7 +5,7 @@ use winit::window::Window;
 
 use crate::glyph_atlas::{AtlasInsert, GpuGlyphAtlas};
 use crate::text::{RasterizedGlyph, ShapedGlyph, TextSystem};
-use crate::{RectDraw, TextAlign, TextDraw};
+use crate::{ImageDraw, PixelFormat, RectDraw, TextAlign, TextDraw};
 
 const MAX_RECTANGLES: usize = 1024;
 const MAX_GLYPHS: usize = 4096;
@@ -40,6 +40,49 @@ struct GlyphInstance {
     viewport: [f32; 2],
     _padding: [f32; 2],
     color: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ImageUniform {
+    position: [f32; 2],
+    size: [f32; 2],
+    clip_position: [f32; 2],
+    clip_size: [f32; 2],
+    viewport: [f32; 2],
+    tint: [f32; 4],
+    mirror_horizontal: u32,
+    has_tint: u32,
+    _padding: [u32; 2],
+}
+
+impl ImageUniform {
+    fn from_draw(viewport: [f32; 2], scale_factor: f32, draw: &ImageDraw) -> Self {
+        let scale_factor = scale_factor.max(f32::EPSILON);
+        Self {
+            position: [
+                draw.bounds.origin.x * scale_factor,
+                draw.bounds.origin.y * scale_factor,
+            ],
+            size: [
+                draw.bounds.size.width.max(0.0) * scale_factor,
+                draw.bounds.size.height.max(0.0) * scale_factor,
+            ],
+            clip_position: [
+                draw.clip.origin.x * scale_factor,
+                draw.clip.origin.y * scale_factor,
+            ],
+            clip_size: [
+                draw.clip.size.width.max(0.0) * scale_factor,
+                draw.clip.size.height.max(0.0) * scale_factor,
+            ],
+            viewport,
+            tint: draw.tint.unwrap_or([1.0; 4]),
+            mirror_horizontal: u32::from(draw.mirror_horizontal),
+            has_tint: u32::from(draw.tint.is_some()),
+            _padding: [0; 2],
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -207,6 +250,12 @@ pub struct Renderer {
     glyph_count: u32,
     glyph_generation: Option<u64>,
     glyph_quads: Vec<GlyphQuad>,
+    image_pipeline: wgpu::RenderPipeline,
+    image_bind_group_layout: wgpu::BindGroupLayout,
+    image_sampler: wgpu::Sampler,
+    image_bind_groups: Vec<wgpu::BindGroup>,
+    image_buffers: Vec<wgpu::Buffer>,
+    image_draws: Vec<ImageDraw>,
     text_system: TextSystem,
     text_draws: Vec<TextDraw>,
     rect_draws: Vec<RectDraw>,
@@ -433,6 +482,79 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let image_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("image_shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/image.wgsl").into()),
+        });
+        let image_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("image_sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let image_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("image_bind_group_layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let image_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("image_pipeline_layout"),
+                bind_group_layouts: &[Some(&image_bind_group_layout)],
+                immediate_size: 0,
+            });
+        let image_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("image_pipeline"),
+            layout: Some(&image_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &image_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &image_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
 
         let renderer = Self {
             surface,
@@ -454,6 +576,12 @@ impl Renderer {
             glyph_count: 0,
             glyph_generation: None,
             glyph_quads: Vec::new(),
+            image_pipeline,
+            image_bind_group_layout,
+            image_sampler,
+            image_bind_groups: Vec::new(),
+            image_buffers: Vec::new(),
+            image_draws: Vec::new(),
             text_system: TextSystem::new(),
             text_draws: Vec::new(),
             rect_draws: Vec::new(),
@@ -484,6 +612,7 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
         self.rebuild_rectangles();
         let _ = self.rebuild_text();
+        self.rebuild_images();
         if self.diagnostics {
             eprintln!(
                 "surface_configured t_us={} configured={}x{}",
@@ -501,6 +630,7 @@ impl Renderer {
         self.glyph_generation = None;
         self.rebuild_rectangles();
         let _ = self.rebuild_text();
+        self.rebuild_images();
     }
 
     fn upload_rectangles(&mut self, rectangles: &[RectUniform]) {
@@ -617,6 +747,11 @@ impl Renderer {
         self.rebuild_text()
     }
 
+    pub fn set_image_draws(&mut self, draws: &[ImageDraw]) {
+        self.image_draws = draws.to_vec();
+        self.rebuild_images();
+    }
+
     pub fn scale_factor(&self) -> f32 {
         self.scale_factor
     }
@@ -645,6 +780,94 @@ impl Renderer {
             }
         }
         self.submit_prepared_glyphs(&prepared, scale_factor)
+    }
+
+    fn rebuild_images(&mut self) {
+        self.image_bind_groups.clear();
+        self.image_buffers.clear();
+        for draw in &self.image_draws {
+            let width = draw.image.width();
+            let height = draw.image.height();
+            let mut pixels = Vec::new();
+            let data = match draw.image.format() {
+                PixelFormat::Rgba8 => draw.image.data(),
+                PixelFormat::Alpha8 => {
+                    pixels.reserve(draw.image.data().len() * 4);
+                    for alpha in draw.image.data() {
+                        pixels.extend_from_slice(&[255, 255, 255, *alpha]);
+                    }
+                    &pixels
+                }
+            };
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("image_texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            self.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                data,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(width * 4),
+                    rows_per_image: Some(height),
+                },
+                wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let uniform = ImageUniform::from_draw(
+                [self.config.width as f32, self.config.height as f32],
+                self.scale_factor,
+                draw,
+            );
+            let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("image_uniform"),
+                size: std::mem::size_of::<ImageUniform>() as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            self.queue
+                .write_buffer(&buffer, 0, bytemuck::bytes_of(&uniform));
+            self.image_bind_groups.push(self.device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    label: Some("image_bind_group"),
+                    layout: &self.image_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.image_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: buffer.as_entire_binding(),
+                        },
+                    ],
+                },
+            ));
+            self.image_buffers.push(buffer);
+        }
     }
 
     fn submit_prepared_glyphs(
@@ -755,6 +978,13 @@ impl Renderer {
                 pass.set_bind_group(0, &self.glyph_bind_group, &[]);
                 pass.draw(0..6, 0..self.glyph_count);
             }
+            if !self.image_draws.is_empty() {
+                pass.set_pipeline(&self.image_pipeline);
+                for bind_group in &self.image_bind_groups {
+                    pass.set_bind_group(0, bind_group, &[]);
+                    pass.draw(0..6, 0..1);
+                }
+            }
         }
 
         self.queue.submit(Some(encoder.finish()));
@@ -786,10 +1016,33 @@ fn aligned_line_start(anchor: f32, width: f32, align: TextAlign, rtl: bool) -> f
 
 #[cfg(test)]
 mod tests {
-    use super::{RectDraw, RectUniform, TextAlign, aligned_line_start};
-    use crate::GPU_TEST_LOCK;
+    use super::{ImageUniform, RectDraw, RectUniform, TextAlign, aligned_line_start};
     use crate::raster::RoundedRectMask;
+    use crate::{
+        GPU_TEST_LOCK, ImageDraw, LogicalPoint, LogicalRect, LogicalSize, PixelFormat, PixelImage,
+    };
     use wgpu::util::DeviceExt;
+
+    #[test]
+    fn image_uniform_preserves_scaled_bounds_clip_mirror_and_tint() {
+        let image = PixelImage::new(1, 1, PixelFormat::Alpha8, vec![192_u8]).unwrap();
+        let draw = ImageDraw {
+            image,
+            bounds: LogicalRect::new(LogicalPoint::new(-2.0, 3.0), LogicalSize::new(8.0, 4.0)),
+            clip: LogicalRect::new(LogicalPoint::new(0.0, 4.0), LogicalSize::new(5.0, 2.0)),
+            mirror_horizontal: true,
+            tint: Some([0.2, 0.4, 0.6, 0.8]),
+        };
+        let uniform = ImageUniform::from_draw([100.0, 80.0], 1.5, &draw);
+
+        assert_eq!(uniform.position, [-3.0, 4.5]);
+        assert_eq!(uniform.size, [12.0, 6.0]);
+        assert_eq!(uniform.clip_position, [0.0, 6.0]);
+        assert_eq!(uniform.clip_size, [7.5, 3.0]);
+        assert_eq!(uniform.mirror_horizontal, 1);
+        assert_eq!(uniform.has_tint, 1);
+        assert_eq!(uniform.tint, [0.2, 0.4, 0.6, 0.8]);
+    }
 
     struct GpuCapture {
         pixels: Vec<[u8; 4]>,

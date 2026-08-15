@@ -89,8 +89,9 @@ pub use update::{
 };
 pub use widget_tree::{WidgetId, WidgetNode, WidgetTree, WidgetTreeError};
 pub use widgets::{
-    BlockAlignment, Image, ImageAlignment, ImageFit, ImageLayout, Text, TextLayout, TextLayoutLine,
-    TextWrap, Widget, WidgetFrame, WidgetPlacement,
+    BlockAlignment, Container, Divider, DividerAxis, Icon, IconError, IconLayout, Image, ImageAlignment,
+    ImageFit, ImageLayout, Spacer, Surface, Text, TextLayout, TextLayoutLine, TextWrap, Widget,
+    WidgetFrame, WidgetPlacement,
 };
 pub use winit_keyboard::keyboard_event_from_winit;
 pub use winit_preferences::{apply_winit_theme, color_scheme_from_winit};
