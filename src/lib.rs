@@ -89,8 +89,11 @@ pub use update::{
 };
 pub use widget_tree::{WidgetId, WidgetNode, WidgetTree, WidgetTreeError};
 pub use widgets::{
-    BlockAlignment, Container, Divider, DividerAxis, Icon, IconError, IconLayout, Image, ImageAlignment,
-    ImageFit, ImageLayout, Spacer, Surface, Text, TextLayout, TextLayoutLine, TextWrap, Widget,
+    BlockAlignment, Button, ButtonDraws, ButtonLayout, ButtonStyle, Checkbox, CheckboxDraws,
+    CheckboxLayout, Column, Container, Divider, DividerAxis, Icon, IconButton, IconButtonLayout,
+    IconError, IconLayout, Image, ImageAlignment, ImageFit, ImageLayout, Radio, RadioDraws,
+    RadioLayout, Row, ScrollAxis, ScrollLayout, ScrollOffset, ScrollView, Spacer, Stack,
+    StackChild, StackLayout, Surface, Text, TextLayout, TextLayoutLine, TextWrap, Widget,
     WidgetFrame, WidgetPlacement,
 };
 pub use winit_keyboard::keyboard_event_from_winit;

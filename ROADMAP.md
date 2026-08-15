@@ -247,9 +247,9 @@ Every phase is gated. Do not start the next phase until the current phase's acce
   - [x] Connect image and icon variants through retained rendering
   - [x] Add image/icon visual goldens and minimal examples
 - [x] Spacer and divider
-- [ ] Container and surface
-- [ ] Row, column, stack, and scroll view
-- [ ] Button and icon button
+- [x] Container and surface
+- [x] Row, column, stack, and scroll view
+- [x] Button and icon button
 - [ ] Checkbox, radio, switch, and slider
 - [ ] Text input, text area, and search input
 - [ ] Select, dropdown, menu, and context menu

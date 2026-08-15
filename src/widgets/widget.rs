@@ -3,12 +3,16 @@
 use std::collections::HashMap;
 
 use crate::{
-    Direction, FrameNode, FrameSnapshot, ImageDraw, LogicalConstraints, LogicalPoint, LogicalRect,
-    RectDraw, ResolvedTheme, SemanticSnapshot, Semantics, TextDraw, TextSystem, WidgetGeometry,
-    WidgetId, WidgetTree,
+    Direction, FrameNode, FrameSnapshot, ImageDraw, LayoutChild, LogicalConstraints, LogicalPoint,
+    LogicalRect, LogicalSize, Overflow, RectDraw, ResolvedTheme, SemanticSnapshot, Semantics,
+    StackChild, TextDraw, TextSystem, WidgetGeometry, WidgetId, WidgetTree,
 };
 
-use super::{Container, Divider, Icon, IconLayout, Image, ImageLayout, Spacer, Surface, Text, TextLayout};
+use super::{
+    Button, ButtonLayout, Checkbox, CheckboxLayout, Column, Container, Divider, Icon, IconButton,
+    IconButtonLayout, IconLayout, Image, ImageLayout, Radio, RadioLayout, Row, ScrollLayout,
+    ScrollView, Spacer, Stack, StackLayout, Surface, Text, TextLayout,
+};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Widget {
@@ -19,6 +23,14 @@ pub enum Widget {
     Divider(Divider),
     Surface(Surface),
     Container(Container),
+    Row(Row),
+    Column(Column),
+    Stack(Stack),
+    ScrollView(ScrollView),
+    Button(Button),
+    IconButton(IconButton),
+    Checkbox(Checkbox),
+    Radio(Radio),
 }
 
 impl From<Text> for Widget {
@@ -53,7 +65,51 @@ impl From<Surface> for Widget {
         Self::Surface(surface)
     }
 }
-impl From<Container> for Widget { fn from(value: Container) -> Self { Self::Container(value) } }
+impl From<Container> for Widget {
+    fn from(value: Container) -> Self {
+        Self::Container(value)
+    }
+}
+impl From<Row> for Widget {
+    fn from(value: Row) -> Self {
+        Self::Row(value)
+    }
+}
+impl From<Column> for Widget {
+    fn from(value: Column) -> Self {
+        Self::Column(value)
+    }
+}
+impl From<Stack> for Widget {
+    fn from(value: Stack) -> Self {
+        Self::Stack(value)
+    }
+}
+impl From<ScrollView> for Widget {
+    fn from(value: ScrollView) -> Self {
+        Self::ScrollView(value)
+    }
+}
+impl From<Button> for Widget {
+    fn from(value: Button) -> Self {
+        Self::Button(value)
+    }
+}
+impl From<IconButton> for Widget {
+    fn from(value: IconButton) -> Self {
+        Self::IconButton(value)
+    }
+}
+impl From<Checkbox> for Widget {
+    fn from(value: Checkbox) -> Self {
+        Self::Checkbox(value)
+    }
+}
+impl From<Radio> for Widget {
+    fn from(value: Radio) -> Self {
+        Self::Radio(value)
+    }
+}
 
 impl Widget {
     pub fn semantics(&self) -> Semantics {
@@ -61,7 +117,28 @@ impl Widget {
             Self::Text(text) => text.semantics(),
             Self::Image(image) => image.semantics(),
             Self::Icon(icon) => icon.semantics(),
-            Self::Spacer(_) | Self::Divider(_) | Self::Surface(_) | Self::Container(_) => Semantics::default(),
+            Self::Button(button) => button.semantics(),
+            Self::IconButton(button) => button.semantics(),
+            Self::Checkbox(checkbox) => checkbox.semantics(),
+            Self::Radio(radio) => radio.semantics(),
+            Self::Spacer(_)
+            | Self::Divider(_)
+            | Self::Surface(_)
+            | Self::Container(_)
+            | Self::Row(_)
+            | Self::Column(_)
+            | Self::Stack(_)
+            | Self::ScrollView(_) => Semantics::default(),
+        }
+    }
+
+    pub fn focus_policy(&self) -> crate::FocusPolicy {
+        match self {
+            Self::Button(button) => button.focus_policy(),
+            Self::IconButton(button) => button.focus_policy(),
+            Self::Checkbox(checkbox) => checkbox.focus_policy(),
+            Self::Radio(radio) => radio.focus_policy(),
+            _ => crate::FocusPolicy::default(),
         }
     }
 }
@@ -96,6 +173,14 @@ enum WidgetLayout {
     Divider(crate::LogicalSize),
     Surface(crate::LogicalSize),
     Container(crate::LogicalSize),
+    Row(LogicalSize),
+    Column(LogicalSize),
+    Stack(StackLayout),
+    ScrollView(ScrollLayout),
+    Button(ButtonLayout),
+    IconButton(IconButtonLayout),
+    Checkbox(CheckboxLayout),
+    Radio(RadioLayout),
 }
 
 #[derive(Clone, Debug)]
@@ -138,7 +223,51 @@ impl WidgetFrame {
                 Widget::Surface(surface) => {
                     WidgetLayout::Surface(surface.layout(placement.constraints))
                 }
-                Widget::Container(container) => WidgetLayout::Container(container.layout(placement.constraints)),
+                Widget::Container(container) => {
+                    WidgetLayout::Container(container.layout(placement.constraints))
+                }
+                Widget::Row(row) => WidgetLayout::Row(
+                    row.layout(placement.inherited_direction, &[], placement.constraints)
+                        .size,
+                ),
+                Widget::Column(column) => WidgetLayout::Column(
+                    column
+                        .layout(placement.inherited_direction, &[], placement.constraints)
+                        .size,
+                ),
+                Widget::Stack(stack) => WidgetLayout::Stack(stack.layout(
+                    placement.inherited_direction,
+                    &[],
+                    placement.constraints,
+                )),
+                Widget::ScrollView(scroll) => WidgetLayout::ScrollView(scroll.layout(
+                    placement.inherited_direction,
+                    LogicalSize::default(),
+                    placement.constraints,
+                )),
+                Widget::Button(button) => WidgetLayout::Button(button.layout(
+                    text_system,
+                    theme,
+                    placement.inherited_direction,
+                    placement.constraints,
+                )),
+                Widget::IconButton(button) => WidgetLayout::IconButton(button.layout(
+                    theme,
+                    placement.inherited_direction,
+                    placement.constraints,
+                )),
+                Widget::Checkbox(checkbox) => WidgetLayout::Checkbox(checkbox.layout(
+                    text_system,
+                    theme,
+                    placement.inherited_direction,
+                    placement.constraints,
+                )),
+                Widget::Radio(radio) => WidgetLayout::Radio(radio.layout(
+                    text_system,
+                    theme,
+                    placement.inherited_direction,
+                    placement.constraints,
+                )),
             };
             let size = match &layout {
                 WidgetLayout::Text(layout) => layout.size,
@@ -147,10 +276,22 @@ impl WidgetFrame {
                 WidgetLayout::Spacer(size)
                 | WidgetLayout::Divider(size)
                 | WidgetLayout::Surface(size)
-                | WidgetLayout::Container(size) => *size,
+                | WidgetLayout::Container(size)
+                | WidgetLayout::Row(size)
+                | WidgetLayout::Column(size) => *size,
+                WidgetLayout::Stack(layout) => layout.size,
+                WidgetLayout::ScrollView(layout) => layout.viewport,
+                WidgetLayout::Button(layout) => layout.size,
+                WidgetLayout::IconButton(layout) => layout.size,
+                WidgetLayout::Checkbox(layout) => layout.size,
+                WidgetLayout::Radio(layout) => layout.size,
             };
             layouts.insert(id, (placement.origin, layout));
-            WidgetGeometry::new(LogicalRect::new(placement.origin, size))
+            let mut geometry = WidgetGeometry::new(LogicalRect::new(placement.origin, size));
+            if matches!(&layouts[&id].1, WidgetLayout::ScrollView(_)) {
+                geometry.overflow = Overflow::Clip;
+            }
+            geometry
         });
         let semantics = SemanticSnapshot::build(tree, |_, widget| widget.semantics());
         let mut rectangles = Vec::new();
@@ -207,6 +348,41 @@ impl WidgetFrame {
                     rectangles.push(widget.draw(*origin, *size, theme));
                 }
                 WidgetLayout::Container(_) => {}
+                WidgetLayout::Row(_) | WidgetLayout::Column(_) => {}
+                WidgetLayout::Stack(_) | WidgetLayout::ScrollView(_) => {}
+                WidgetLayout::Button(layout) => {
+                    let Widget::Button(widget) = &tree.get(node.id).unwrap().state else {
+                        unreachable!()
+                    };
+                    let draws = layout.draws(widget, *origin);
+                    rectangles.push(draws.background);
+                    text.extend(draws.text);
+                    images.extend(draws.icon);
+                }
+                WidgetLayout::IconButton(layout) => {
+                    let Widget::IconButton(widget) = &tree.get(node.id).unwrap().state else {
+                        unreachable!()
+                    };
+                    let draws = layout.draws(widget, *origin);
+                    rectangles.push(draws.background);
+                    images.extend(draws.icon);
+                }
+                WidgetLayout::Checkbox(layout) => {
+                    let Widget::Checkbox(widget) = &tree.get(node.id).unwrap().state else {
+                        unreachable!()
+                    };
+                    let draws = layout.draws(widget, *origin, theme);
+                    rectangles.extend(draws.indicator);
+                    text.extend(draws.label);
+                }
+                WidgetLayout::Radio(layout) => {
+                    let Widget::Radio(widget) = &tree.get(node.id).unwrap().state else {
+                        unreachable!()
+                    };
+                    let draws = layout.draws(widget, *origin, theme);
+                    rectangles.extend(draws.indicator);
+                    text.extend(draws.label);
+                }
             }
         });
         rectangles.shrink_to_fit();
@@ -219,6 +395,147 @@ impl WidgetFrame {
             text,
             images,
         }
+    }
+
+    pub fn build_composed(
+        tree: &WidgetTree<Widget>,
+        text_system: &mut TextSystem,
+        theme: &ResolvedTheme,
+        root: WidgetPlacement,
+    ) -> Self {
+        let direction = root.inherited_direction;
+        let mut measured = HashMap::with_capacity(tree.len());
+        let ids = tree.depth_first(tree.root()).collect::<Vec<_>>();
+        for id in ids.iter().rev().copied() {
+            let node = tree.get(id).unwrap();
+            let children = node
+                .children()
+                .iter()
+                .map(|child| LayoutChild::new(measured[child]))
+                .collect::<Vec<_>>();
+            let constraints = if id == tree.root() {
+                root.constraints
+            } else {
+                LogicalConstraints::unconstrained()
+            };
+            let size = match &node.state {
+                Widget::Text(widget) => widget.layout(text_system, direction, constraints).size,
+                Widget::Image(widget) => widget.layout(direction, constraints).size,
+                Widget::Icon(widget) => widget.layout(direction, constraints).size(),
+                Widget::Spacer(widget) => widget.layout(constraints),
+                Widget::Divider(widget) => widget.layout(constraints),
+                Widget::Surface(widget) => widget.layout(constraints),
+                Widget::Container(widget) => widget.layout(constraints),
+                Widget::Row(widget) => widget.layout(direction, &children, constraints).size,
+                Widget::Column(widget) => widget.layout(direction, &children, constraints).size,
+                Widget::Stack(widget) => {
+                    let children = children
+                        .iter()
+                        .map(|child| StackChild::new(child.preferred))
+                        .collect::<Vec<_>>();
+                    widget.layout(direction, &children, constraints).size
+                }
+                Widget::ScrollView(widget) => {
+                    let content = children.iter().fold(LogicalSize::default(), |size, child| {
+                        LogicalSize::new(
+                            size.width.max(child.preferred.width),
+                            size.height.max(child.preferred.height),
+                        )
+                    });
+                    widget.layout(direction, content, constraints).viewport
+                }
+                Widget::Button(widget) => {
+                    widget
+                        .layout(text_system, theme, direction, constraints)
+                        .size
+                }
+                Widget::IconButton(widget) => widget.layout(theme, direction, constraints).size,
+                Widget::Checkbox(widget) => {
+                    widget
+                        .layout(text_system, theme, direction, constraints)
+                        .size
+                }
+                Widget::Radio(widget) => {
+                    widget
+                        .layout(text_system, theme, direction, constraints)
+                        .size
+                }
+            };
+            measured.insert(id, size);
+        }
+
+        let mut placements = HashMap::with_capacity(tree.len());
+        let root_size = measured[&tree.root()];
+        placements.insert(
+            tree.root(),
+            WidgetPlacement::new(root.origin, LogicalConstraints::tight(root_size), direction),
+        );
+        for id in ids {
+            let node = tree.get(id).unwrap();
+            if node.children().is_empty() {
+                continue;
+            }
+            let parent = placements[&id];
+            let children = node
+                .children()
+                .iter()
+                .map(|child| LayoutChild::new(measured[child]))
+                .collect::<Vec<_>>();
+            let child_bounds = match &node.state {
+                Widget::Row(widget) => {
+                    widget
+                        .layout(direction, &children, parent.constraints)
+                        .children
+                }
+                Widget::Column(widget) => {
+                    widget
+                        .layout(direction, &children, parent.constraints)
+                        .children
+                }
+                Widget::Stack(widget) => {
+                    let stack_children = children
+                        .iter()
+                        .map(|child| StackChild::new(child.preferred))
+                        .collect::<Vec<_>>();
+                    widget
+                        .layout(direction, &stack_children, parent.constraints)
+                        .children
+                }
+                Widget::ScrollView(widget) => {
+                    let content = children.iter().fold(LogicalSize::default(), |size, child| {
+                        LogicalSize::new(
+                            size.width.max(child.preferred.width),
+                            size.height.max(child.preferred.height),
+                        )
+                    });
+                    let layout = widget.layout(direction, content, parent.constraints);
+                    children
+                        .iter()
+                        .map(|child| {
+                            LogicalRect::new(layout.content_bounds.origin, child.preferred)
+                        })
+                        .collect()
+                }
+                _ => children
+                    .iter()
+                    .map(|child| LogicalRect::new(LogicalPoint::default(), child.preferred))
+                    .collect(),
+            };
+            for (child, bounds) in node.children().iter().copied().zip(child_bounds) {
+                placements.insert(
+                    child,
+                    WidgetPlacement::new(
+                        LogicalPoint::new(
+                            parent.origin.x + bounds.origin.x,
+                            parent.origin.y + bounds.origin.y,
+                        ),
+                        LogicalConstraints::tight(bounds.size),
+                        direction,
+                    ),
+                );
+            }
+        }
+        Self::build(tree, text_system, theme, |id, _| placements[&id])
     }
 }
 
@@ -292,6 +609,37 @@ mod tests {
                 feed(&value.to_bits().to_le_bytes());
             }
         }
+        hash
+    }
+
+    fn button_visual_digest(frame: &WidgetFrame) -> u64 {
+        let mut hash = 0xcbf29ce484222325_u64;
+        let mut feed = |bytes: &[u8]| {
+            for byte in bytes {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+        };
+        for draw in &frame.rectangles {
+            for value in draw
+                .position
+                .into_iter()
+                .chain(draw.size)
+                .chain(draw.radii)
+                .chain(draw.color)
+                .chain([draw.border_width])
+                .chain(draw.border_color)
+            {
+                feed(&value.to_bits().to_le_bytes());
+            }
+        }
+        for draw in &frame.text {
+            feed(draw.text.as_bytes());
+            for value in draw.baseline.into_iter().chain(draw.color) {
+                feed(&value.to_bits().to_le_bytes());
+            }
+        }
+        feed(&image_visual_digest(frame).to_le_bytes());
         hash
     }
 
@@ -421,6 +769,291 @@ mod tests {
     }
 
     #[test]
+    fn retained_button_and_icon_button_freeze_semantics_geometry_and_paint() {
+        use crate::{AdornmentPlacement, Button, IconButton, SemanticAction, VisualVariant};
+
+        let mask =
+            || Icon::new(PixelImage::new(1, 1, PixelFormat::Alpha8, vec![255]).unwrap()).unwrap();
+        let mut button = Button::new("Continue").with_icon(mask(), AdornmentPlacement::InlineEnd);
+        button.style.variant = VisualVariant::Solid;
+        let mut tree = WidgetTree::new(Widget::from(button));
+        let root = tree.root();
+        let icon_button = tree
+            .append(root, Widget::from(IconButton::new(mask(), "Menu")))
+            .unwrap();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |id, _| {
+            WidgetPlacement::new(
+                LogicalPoint::new(if id == root { 8.0 } else { 180.0 }, 12.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Rtl,
+            )
+        });
+
+        let semantics = &frame.semantics.get(root).unwrap().semantics;
+        assert_eq!(semantics.role, SemanticRole::Button);
+        assert!(semantics.supports(SemanticAction::Activate));
+        assert_eq!(frame.rectangles.len(), 2);
+        assert_eq!(frame.text.len(), 1);
+        assert_eq!(frame.text[0].text, "Continue");
+        assert_eq!(frame.images.len(), 2);
+        assert_eq!(
+            frame.geometry.get(icon_button).unwrap().bounds.size.width,
+            frame.geometry.get(icon_button).unwrap().bounds.size.height
+        );
+
+        tree.get_mut(root).unwrap().state = Widget::from(Button::new("Changed"));
+        assert_eq!(frame.text[0].text, "Continue");
+    }
+
+    #[test]
+    fn retained_checkbox_freezes_checked_semantics_geometry_and_paint() {
+        use crate::{Checkbox, SemanticAction};
+
+        let mut checkbox = Checkbox::new("Remember me");
+        checkbox.checked = true;
+        let mut tree = WidgetTree::new(Widget::from(checkbox));
+        let root = tree.root();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+            WidgetPlacement::new(
+                LogicalPoint::new(6.0, 9.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Rtl,
+            )
+        });
+
+        let semantics = &frame.semantics.get(root).unwrap().semantics;
+        assert_eq!(semantics.role, SemanticRole::Checkbox);
+        assert_eq!(semantics.state.checked, Some(true));
+        assert!(semantics.supports(SemanticAction::Activate));
+        assert!(frame.geometry.get(root).unwrap().bounds.size.width > 16.0);
+        assert_eq!(frame.rectangles.len(), 2);
+        assert_eq!(frame.text.len(), 1);
+        assert_eq!(frame.text[0].text, "Remember me");
+
+        tree.get_mut(root).unwrap().state = Widget::from(Checkbox::new("Changed"));
+        assert_eq!(frame.text[0].text, "Remember me");
+        assert_eq!(frame.rectangles[0].color, theme.colors.primary.to_array());
+    }
+
+    #[test]
+    fn checkbox_keyboard_activation_respects_disabled_focus_policy() {
+        use crate::{
+            Checkbox, FocusSnapshot, Key, KeyboardEvent, SemanticAction, semantic_action_for_key,
+        };
+
+        let checkbox = Checkbox::new("Remember me");
+        let tree = WidgetTree::new(Widget::from(checkbox));
+        let focus = FocusSnapshot::build(&tree, |_, widget| widget.focus_policy());
+        assert_eq!(focus.tab_order(), &[tree.root()]);
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+            WidgetPlacement::new(
+                LogicalPoint::default(),
+                LogicalConstraints::unconstrained(),
+                Direction::Ltr,
+            )
+        });
+        let space = KeyboardEvent::pressed(Key::Space);
+        assert_eq!(
+            semantic_action_for_key(&frame.semantics, tree.root(), &space, Direction::Ltr)
+                .unwrap()
+                .action,
+            SemanticAction::Activate
+        );
+
+        let mut disabled = Checkbox::new("Disabled");
+        disabled.disabled = true;
+        let tree = WidgetTree::new(Widget::from(disabled));
+        let focus = FocusSnapshot::build(&tree, |_, widget| widget.focus_policy());
+        assert!(focus.tab_order().is_empty());
+    }
+
+    #[test]
+    fn retained_checkbox_visual_outputs_match_direction_goldens() {
+        use crate::Checkbox;
+
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let fixtures = [
+            (Direction::Ltr, false, 14149347552930099619_u64),
+            (Direction::Rtl, true, 7749473330257813281_u64),
+        ];
+        for (direction, checked, expected) in fixtures {
+            let mut checkbox = Checkbox::new("Remember me");
+            checkbox.checked = checked;
+            let tree = WidgetTree::new(Widget::from(checkbox));
+            let mut text_system = crate::TextSystem::new();
+            let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+                WidgetPlacement::new(
+                    LogicalPoint::new(7.0, 11.0),
+                    LogicalConstraints::unconstrained(),
+                    direction,
+                )
+            });
+            let actual = button_visual_digest(&frame);
+            assert_eq!(actual, expected, "direction={direction:?} actual={actual}");
+        }
+    }
+
+    #[test]
+    fn retained_radio_supports_focus_keyboard_semantics_and_frozen_paint() {
+        use crate::{
+            FocusSnapshot, Key, KeyboardEvent, Radio, SemanticAction, semantic_action_for_key,
+        };
+
+        let mut radio = Radio::new("Standard delivery");
+        radio.selected = true;
+        let mut tree = WidgetTree::new(Widget::from(radio));
+        let root = tree.root();
+        let focus = FocusSnapshot::build(&tree, |_, widget| widget.focus_policy());
+        assert_eq!(focus.tab_order(), &[root]);
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+            WidgetPlacement::new(
+                LogicalPoint::new(4.0, 7.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Rtl,
+            )
+        });
+        let space = KeyboardEvent::pressed(Key::Space);
+        assert_eq!(
+            semantic_action_for_key(&frame.semantics, root, &space, Direction::Rtl)
+                .unwrap()
+                .action,
+            SemanticAction::Activate
+        );
+        assert_eq!(
+            frame.semantics.get(root).unwrap().semantics.role,
+            SemanticRole::Radio
+        );
+        assert_eq!(
+            frame.semantics.get(root).unwrap().semantics.state.checked,
+            Some(true)
+        );
+        assert_eq!(frame.rectangles.len(), 2);
+        assert_eq!(frame.text[0].text, "Standard delivery");
+
+        tree.get_mut(root).unwrap().state = Widget::from(Radio::new("Changed"));
+        assert_eq!(frame.text[0].text, "Standard delivery");
+    }
+
+    #[test]
+    fn retained_radio_visual_outputs_match_direction_goldens() {
+        use crate::Radio;
+
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let fixtures = [
+            (Direction::Ltr, false, 17449127050552886139_u64),
+            (Direction::Rtl, true, 537322983665427384_u64),
+        ];
+        for (direction, selected, expected) in fixtures {
+            let mut radio = Radio::new("Standard delivery");
+            radio.selected = selected;
+            let tree = WidgetTree::new(Widget::from(radio));
+            let mut text_system = crate::TextSystem::new();
+            let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+                WidgetPlacement::new(
+                    LogicalPoint::new(7.0, 11.0),
+                    LogicalConstraints::unconstrained(),
+                    direction,
+                )
+            });
+            let actual = button_visual_digest(&frame);
+            assert_eq!(actual, expected, "direction={direction:?} actual={actual}");
+        }
+    }
+
+    #[test]
+    fn button_focus_and_keyboard_activation_follow_enabled_semantics() {
+        use crate::{
+            Button, FocusSnapshot, IconButton, Key, KeyboardEvent, SemanticAction,
+            semantic_action_for_key,
+        };
+
+        let mask =
+            || Icon::new(PixelImage::new(1, 1, PixelFormat::Alpha8, vec![255]).unwrap()).unwrap();
+        let mut tree = WidgetTree::new(Widget::from(Button::new("Save")));
+        let root = tree.root();
+        let mut disabled = IconButton::new(mask(), "Menu");
+        disabled.style.state.disabled = true;
+        let disabled = tree.append(root, Widget::from(disabled)).unwrap();
+        let focus = FocusSnapshot::build(&tree, |_, widget| widget.focus_policy());
+        assert_eq!(focus.tab_order(), &[root]);
+
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+            WidgetPlacement::new(
+                LogicalPoint::default(),
+                LogicalConstraints::unconstrained(),
+                Direction::Ltr,
+            )
+        });
+        let enter = KeyboardEvent::pressed(Key::Enter);
+        assert_eq!(
+            semantic_action_for_key(&frame.semantics, root, &enter, Direction::Ltr)
+                .unwrap()
+                .action,
+            SemanticAction::Activate
+        );
+        assert_eq!(
+            semantic_action_for_key(&frame.semantics, disabled, &enter, Direction::Ltr),
+            None
+        );
+    }
+
+    #[test]
+    fn retained_button_visual_outputs_match_direction_goldens() {
+        use crate::{AdornmentPlacement, Button, VisualVariant};
+
+        let mask = || {
+            Icon::new(PixelImage::new(2, 1, PixelFormat::Alpha8, vec![255, 96]).unwrap()).unwrap()
+        };
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let fixtures = [
+            (
+                Direction::Ltr,
+                VisualVariant::Solid,
+                11723903865523465027_u64,
+            ),
+            (
+                Direction::Rtl,
+                VisualVariant::Outline,
+                14904414208503005046_u64,
+            ),
+        ];
+        for (direction, variant, expected) in fixtures {
+            let mut button =
+                Button::new("Continue").with_icon(mask(), AdornmentPlacement::InlineEnd);
+            button.style.variant = variant;
+            let tree = WidgetTree::new(Widget::from(button));
+            let mut text_system = crate::TextSystem::new();
+            let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+                WidgetPlacement::new(
+                    LogicalPoint::new(7.0, 11.0),
+                    LogicalConstraints::unconstrained(),
+                    direction,
+                )
+            });
+            let actual = button_visual_digest(&frame);
+            assert_eq!(actual, expected, "direction={direction:?} actual={actual}");
+        }
+    }
+
+    #[test]
     fn retained_spacer_and_divider_freeze_geometry_and_theme_resolved_paint() {
         use crate::{Divider, Spacer};
 
@@ -466,6 +1099,149 @@ mod tests {
         });
         assert_eq!(frame.rectangles[0].position, [3.0, 4.0]);
         assert_eq!(frame.rectangles[0].color, theme.colors.surface.to_array());
+    }
+
+    #[test]
+    fn retained_container_freezes_constraint_resolved_geometry_without_paint() {
+        use crate::{Container, LogicalRect};
+        let tree = WidgetTree::new(Widget::from(Container::new(LogicalSize::new(32.0, 18.0))));
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build(&tree, &mut text_system, &theme, |_, _| {
+            WidgetPlacement::new(
+                LogicalPoint::new(5.0, 7.0),
+                LogicalConstraints::tight(LogicalSize::new(20.0, 10.0)),
+                Direction::Ltr,
+            )
+        });
+        assert_eq!(
+            frame.geometry.get(tree.root()).unwrap().bounds,
+            LogicalRect::new(LogicalPoint::new(5.0, 7.0), LogicalSize::new(20.0, 10.0))
+        );
+        assert!(frame.rectangles.is_empty());
+    }
+
+    #[test]
+    fn composed_row_places_retained_children_and_mirrors_geometry_in_rtl() {
+        use crate::{Row, Spacer};
+
+        let mut tree = WidgetTree::new(Widget::from(Row::default()));
+        let root = tree.root();
+        let first = tree
+            .append(root, Widget::from(Spacer::new(LogicalSize::new(10.0, 4.0))))
+            .unwrap();
+        let second = tree
+            .append(root, Widget::from(Spacer::new(LogicalSize::new(6.0, 8.0))))
+            .unwrap();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build_composed(
+            &tree,
+            &mut text_system,
+            &theme,
+            WidgetPlacement::new(
+                LogicalPoint::new(5.0, 7.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Rtl,
+            ),
+        );
+
+        assert_eq!(frame.geometry.paint_order(), &[root, first, second]);
+        assert_eq!(
+            frame.geometry.get(root).unwrap().bounds.size,
+            LogicalSize::new(16.0, 8.0)
+        );
+        assert_eq!(
+            frame.geometry.get(first).unwrap().bounds.origin,
+            LogicalPoint::new(11.0, 7.0)
+        );
+        assert_eq!(
+            frame.geometry.get(second).unwrap().bounds.origin,
+            LogicalPoint::new(5.0, 7.0)
+        );
+    }
+
+    #[test]
+    fn composed_stack_overlays_children_in_stable_paint_order() {
+        use crate::{Spacer, Stack};
+
+        let mut tree = WidgetTree::new(Widget::from(Stack));
+        let root = tree.root();
+        let back = tree
+            .append(root, Widget::from(Spacer::new(LogicalSize::new(10.0, 8.0))))
+            .unwrap();
+        let front = tree
+            .append(root, Widget::from(Spacer::new(LogicalSize::new(4.0, 3.0))))
+            .unwrap();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build_composed(
+            &tree,
+            &mut text_system,
+            &theme,
+            WidgetPlacement::new(
+                LogicalPoint::new(2.0, 3.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Ltr,
+            ),
+        );
+
+        assert_eq!(frame.geometry.paint_order(), &[root, back, front]);
+        assert_eq!(
+            frame.geometry.get(back).unwrap().bounds.origin,
+            LogicalPoint::new(2.0, 3.0)
+        );
+        assert_eq!(
+            frame.geometry.get(front).unwrap().bounds.origin,
+            LogicalPoint::new(2.0, 3.0)
+        );
+    }
+
+    #[test]
+    fn composed_scroll_view_offsets_content_and_clips_descendants() {
+        use crate::{ClipRegion, LogicalRect, ScrollOffset, ScrollView, Spacer};
+
+        let scroll = ScrollView {
+            viewport: Some(LogicalSize::new(20.0, 10.0)),
+            offset: ScrollOffset::new(5.0, 0.0),
+            ..ScrollView::default()
+        };
+        let mut tree = WidgetTree::new(Widget::from(scroll));
+        let root = tree.root();
+        let content = tree
+            .append(
+                root,
+                Widget::from(Spacer::new(LogicalSize::new(40.0, 10.0))),
+            )
+            .unwrap();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = crate::TextSystem::new();
+        let frame = WidgetFrame::build_composed(
+            &tree,
+            &mut text_system,
+            &theme,
+            WidgetPlacement::new(
+                LogicalPoint::new(10.0, 12.0),
+                LogicalConstraints::unconstrained(),
+                Direction::Ltr,
+            ),
+        );
+
+        let root_bounds =
+            LogicalRect::new(LogicalPoint::new(10.0, 12.0), LogicalSize::new(20.0, 10.0));
+        assert_eq!(frame.geometry.get(root).unwrap().bounds, root_bounds);
+        assert_eq!(
+            frame.geometry.get(content).unwrap().bounds.origin,
+            LogicalPoint::new(5.0, 12.0)
+        );
+        assert_eq!(
+            frame.geometry.get(content).unwrap().clip,
+            ClipRegion::Rect(root_bounds)
+        );
     }
 
     #[test]
