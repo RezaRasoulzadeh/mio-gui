@@ -250,10 +250,30 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 - [x] Container and surface
 - [x] Row, column, stack, and scroll view
 - [x] Button and icon button
-- [ ] Checkbox, radio, switch, and slider
-- [ ] Text input, text area, and search input
-- [ ] Select, dropdown, menu, and context menu
-- [ ] Tooltip, popover, modal, and drawer
+  - [x] Route icon-button focus and activation through native keyboard, pointer, and accessibility paths
+- [x] Checkbox, radio, switch, and slider
+  - [x] Add retained radio-group exclusivity and wrapping arrow-key movement
+  - [x] Give radio groups one roving Tab stop without blocking pointer or accessibility focus
+  - [x] Dispatch control actions on key down without duplicating them on key release
+  - [x] Complete slider arrow, edge, page, repeat, and RTL keyboard behavior
+  - [x] Expose validated slider value, range, and step metadata to platform accessibility
+- [x] Text input, text area, and search input
+  - [x] Add grapheme-safe visual-line Up/Down movement and Shift extension for text areas
+  - [x] Preserve independent selection anchors for reversible keyboard and pointer selection
+  - [x] Add visual-line Home/End and primary-modified document-edge movement for text areas
+  - [x] Allow caret and selection navigation in read-only fields while rejecting mutation
+  - [x] Apply assistive-technology text and numeric value changes through backend-neutral actions
+  - [x] Expose distinct single-line, multiline, and search-field roles to platform accessibility
+  - [x] Expose editable control placeholders through core semantics and AccessKit
+  - [x] Expose editable text runs, character boundaries, and selection through platform accessibility
+- [x] Select, dropdown, menu, and context menu
+  - [x] Close select and dropdown popups when keyboard focus leaves their trigger
+  - [x] Expose select controls as combo boxes through core semantics and AccessKit
+  - [x] Publish retained menu items as individually actionable accessibility nodes
+  - [x] Publish open select, dropdown, and context-menu items as actionable accessibility nodes
+  - [x] Track active popup items through native accessibility active descendants
+  - [x] Freeze popup item bounds for native accessibility exploration and hit testing
+- [x] Tooltip, popover, modal, and drawer
 
 For every widget:
 
@@ -268,14 +288,19 @@ For every widget:
 
 ### Gate
 
-- [ ] A representative rendered form is keyboard-usable and manually verified with platform screen readers in both directions
+- [x] A representative retained form has equivalent geometry, semantics, and keyboard focus order in both directions
+  - [x] Cover single-line, search, multiline, select, radio, checkbox, switch, slider, and button controls
+- [x] The renderer consumes complete retained widget frames through a render-layer API
+- [x] The representative form runs in a native window with keyboard dispatch and AccessKit updates
+- [x] A representative rendered form is keyboard-usable in both directions
+- [ ] Manually verify the representative form with platform screen readers in both directions
 
 ## Phase 8 — DaisyUI-inspired component coverage
 
 ### Actions
 
-- [ ] Button
-- [ ] Dropdown
+- [x] Button
+- [x] Dropdown
 - [ ] Modal
 - [ ] Swap
 - [ ] Theme controller
@@ -373,6 +398,8 @@ For every widget:
 - [ ] Cache only with explicit invalidation rules
 - [ ] Batch shapes, glyphs, images, and clips efficiently
 - [ ] Avoid per-frame allocations in steady state
+- [ ] Complete native-DPI text sampling and built-in icon-mask quality tuning
+- [ ] Polish popup overlay sizing, trigger-only focus geometry, and viewport overflow presentation
 - [ ] Stress-test large widget trees, tables, and text documents
 - [ ] Test device loss and renderer recovery
 - [ ] Test long-running memory behavior

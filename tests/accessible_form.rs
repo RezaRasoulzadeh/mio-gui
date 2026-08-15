@@ -1,15 +1,144 @@
 // accessible_form.rs
 
 use mio_gui::{
-    ArrowKey, Direction, FocusManager, FocusPolicy, FocusSnapshot, FrameSnapshot, Key,
-    KeyboardEvent, LogicalRect, SemanticAction, SemanticRole, SemanticSnapshot, Semantics,
-    WidgetGeometry, WidgetTree, apply_focus_navigation, semantic_action_for_key,
+    ArrowKey, Button, Checkbox, Column, Direction, FocusManager, FocusPolicy, FocusSnapshot,
+    FrameSnapshot, Key, KeyboardEvent, LogicalConstraints, LogicalPoint, LogicalRect, LogicalSize,
+    Radio, SearchInput, Select, SelectOption, SemanticAction, SemanticRole, SemanticSnapshot,
+    Semantics, Slider, Switch, TextArea, TextInput, TextSystem, ThemeController, ThemeDefinition,
+    UserPreferences, Widget, WidgetFrame, WidgetGeometry, WidgetPlacement, WidgetTree,
+    apply_focus_navigation, semantic_action_for_key,
 };
 
 #[derive(Clone)]
 struct FormNode {
     focus: FocusPolicy,
     semantics: Semantics,
+}
+
+#[test]
+fn retained_widgets_form_preserves_keyboard_and_semantic_order_in_both_directions() {
+    for direction in [Direction::Ltr, Direction::Rtl] {
+        let mut column = Column::default();
+        column.layout.gap = 12.0;
+        let mut tree = WidgetTree::new(Widget::from(column));
+        let root = tree.root();
+        let name = tree
+            .append(root, Widget::from(TextInput::new("Name")))
+            .unwrap();
+        let search = tree
+            .append(root, Widget::from(SearchInput::new("Search")))
+            .unwrap();
+        let notes = tree
+            .append(root, Widget::from(TextArea::new("Notes")))
+            .unwrap();
+        let country = tree
+            .append(
+                root,
+                Widget::from(
+                    Select::new(
+                        "Country",
+                        vec![
+                            SelectOption::new("Iran", "ir"),
+                            SelectOption::new("Japan", "jp"),
+                        ],
+                    )
+                    .unwrap(),
+                ),
+            )
+            .unwrap();
+        let standard = tree
+            .append(
+                root,
+                Widget::from(Radio::new("Standard delivery").with_group("delivery", "standard")),
+            )
+            .unwrap();
+        let express = tree
+            .append(
+                root,
+                Widget::from(Radio::new("Express delivery").with_group("delivery", "express")),
+            )
+            .unwrap();
+        tree.select_radio(standard);
+        let updates = tree
+            .append(root, Widget::from(Checkbox::new("Receive updates")))
+            .unwrap();
+        let alerts = tree
+            .append(root, Widget::from(Switch::new("Alerts")))
+            .unwrap();
+        let amount = tree
+            .append(
+                root,
+                Widget::from(Slider::new("Amount", 0.0..=100.0, 50.0).unwrap()),
+            )
+            .unwrap();
+        let submit = tree
+            .append(root, Widget::from(Button::new("Submit")))
+            .unwrap();
+        let focus_snapshot = FocusSnapshot::build(&tree, |id, widget| {
+            let mut policy = widget.focus_policy();
+            if let Widget::Radio(radio) = widget {
+                if let Some(group) = radio.group() {
+                    policy.skip_tab_order = tree.radio_tab_stop(group) != Some(id);
+                }
+            }
+            policy
+        });
+        let tab_controls = [
+            name, search, notes, country, standard, updates, alerts, amount, submit,
+        ];
+        let semantic_controls = [
+            name, search, notes, country, standard, express, updates, alerts, amount, submit,
+        ];
+        assert_eq!(focus_snapshot.tab_order(), &tab_controls);
+
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = TextSystem::new();
+        let frame = WidgetFrame::build_composed(
+            &tree,
+            &mut text_system,
+            &theme,
+            WidgetPlacement::new(
+                LogicalPoint::new(16.0, 16.0),
+                LogicalConstraints::loose(LogicalSize::new(400.0, 480.0)),
+                direction,
+            ),
+        );
+        assert_eq!(
+            semantic_controls.map(|id| frame.semantics.get(id).unwrap().semantics.role),
+            [
+                SemanticRole::TextField,
+                SemanticRole::SearchField,
+                SemanticRole::MultilineTextField,
+                SemanticRole::ComboBox,
+                SemanticRole::Radio,
+                SemanticRole::Radio,
+                SemanticRole::Checkbox,
+                SemanticRole::Switch,
+                SemanticRole::Slider,
+                SemanticRole::Button,
+            ]
+        );
+        assert!(
+            semantic_controls.into_iter().all(|id| frame
+                .geometry
+                .get(id)
+                .unwrap()
+                .bounds
+                .size
+                .width
+                > 0.0)
+        );
+
+        let mut focus = FocusManager::default();
+        let tab = KeyboardEvent::pressed(Key::Tab);
+        for expected in tab_controls.into_iter().chain([name]) {
+            assert_eq!(
+                apply_focus_navigation(&mut focus, &focus_snapshot, &tab, direction),
+                Some(expected)
+            );
+        }
+    }
 }
 
 fn node(focusable: bool, semantics: Semantics) -> FormNode {

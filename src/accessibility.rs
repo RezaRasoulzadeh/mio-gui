@@ -1,8 +1,10 @@
 // accessibility.rs
 
 use std::collections::BTreeSet;
+use std::ops::RangeInclusive;
 
-use crate::{WidgetId, WidgetTree};
+use crate::{LogicalRect, WidgetId, WidgetTree};
+use unicode_segmentation::UnicodeSegmentation;
 
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum SemanticRole {
@@ -13,8 +15,11 @@ pub enum SemanticRole {
     Radio,
     Switch,
     Slider,
+    ComboBox,
     Text,
     TextField,
+    MultilineTextField,
+    SearchField,
     Link,
     Image,
     Heading,
@@ -22,6 +27,7 @@ pub enum SemanticRole {
     ListItem,
     Menu,
     MenuItem,
+    ListBoxOption,
     Dialog,
 }
 
@@ -33,8 +39,122 @@ pub enum SemanticAction {
     Increment,
     Decrement,
     SetValue,
+    SetTextSelection,
     ShowMenu,
     ScrollIntoView,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SemanticActionValue {
+    Text(String),
+    Number(f64),
+    TextSelection { anchor: usize, caret: usize },
+    Index(usize),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SemanticEditableText {
+    text: String,
+    character_lengths: Vec<u8>,
+    anchor: usize,
+    caret: usize,
+}
+
+impl SemanticEditableText {
+    pub fn new(text: impl Into<String>, anchor: usize, caret: usize) -> Option<Self> {
+        let text = text.into();
+        let character_lengths = text
+            .graphemes(true)
+            .map(|grapheme| u8::try_from(grapheme.len()))
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        let is_boundary = |offset| {
+            offset <= text.len()
+                && (offset == text.len()
+                    || text
+                        .grapheme_indices(true)
+                        .any(|(boundary, _)| boundary == offset))
+        };
+        (is_boundary(anchor) && is_boundary(caret)).then_some(Self {
+            text,
+            character_lengths,
+            anchor,
+            caret,
+        })
+    }
+
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    pub fn character_lengths(&self) -> &[u8] {
+        &self.character_lengths
+    }
+
+    pub fn anchor(&self) -> usize {
+        self.anchor
+    }
+
+    pub fn caret(&self) -> usize {
+        self.caret
+    }
+
+    pub fn character_index(&self, byte_offset: usize) -> Option<usize> {
+        let mut boundary = 0;
+        for (index, length) in self.character_lengths.iter().enumerate() {
+            if boundary == byte_offset {
+                return Some(index);
+            }
+            boundary += usize::from(*length);
+        }
+        (boundary == byte_offset).then_some(self.character_lengths.len())
+    }
+
+    pub fn byte_offset(&self, character_index: usize) -> Option<usize> {
+        (character_index <= self.character_lengths.len()).then(|| {
+            self.character_lengths[..character_index]
+                .iter()
+                .map(|length| usize::from(*length))
+                .sum()
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SemanticNumericValue {
+    value: f64,
+    minimum: f64,
+    maximum: f64,
+    step: Option<f64>,
+}
+
+impl SemanticNumericValue {
+    pub fn new(value: f64, minimum: f64, maximum: f64, step: Option<f64>) -> Option<Self> {
+        (value.is_finite()
+            && minimum.is_finite()
+            && maximum.is_finite()
+            && minimum <= maximum
+            && (minimum..=maximum).contains(&value)
+            && step.is_none_or(|step| step.is_finite() && step > 0.0))
+        .then_some(Self {
+            value,
+            minimum,
+            maximum,
+            step,
+        })
+    }
+
+    pub fn value(self) -> f64 {
+        self.value
+    }
+
+    pub fn range(self) -> RangeInclusive<f64> {
+        self.minimum..=self.maximum
+    }
+
+    pub fn step(self) -> Option<f64> {
+        self.step
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -50,13 +170,19 @@ pub struct SemanticState {
     pub invalid: bool,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Semantics {
     pub role: SemanticRole,
     pub name: Option<String>,
     pub value: Option<String>,
+    pub placeholder: Option<String>,
+    pub numeric_value: Option<SemanticNumericValue>,
+    pub editable_text: Option<SemanticEditableText>,
     pub state: SemanticState,
     actions: BTreeSet<SemanticAction>,
+    virtual_children: Vec<Semantics>,
+    virtual_child_bounds: Vec<Option<LogicalRect>>,
+    active_virtual_child: Option<usize>,
 }
 
 impl Semantics {
@@ -77,6 +203,21 @@ impl Semantics {
         self
     }
 
+    pub fn with_placeholder(mut self, placeholder: impl Into<String>) -> Self {
+        self.set_placeholder(placeholder);
+        self
+    }
+
+    pub fn with_numeric_value(mut self, value: SemanticNumericValue) -> Self {
+        self.numeric_value = Some(value);
+        self
+    }
+
+    pub fn with_editable_text(mut self, text: SemanticEditableText) -> Self {
+        self.editable_text = Some(text);
+        self
+    }
+
     pub fn with_state(mut self, state: SemanticState) -> Self {
         self.state = state;
         self
@@ -87,9 +228,20 @@ impl Semantics {
         self
     }
 
+    pub fn with_virtual_child(mut self, child: Semantics) -> Self {
+        self.virtual_children.push(child);
+        self.virtual_child_bounds.push(None);
+        self
+    }
+
     pub fn set_name(&mut self, name: impl Into<String>) {
         let name = name.into();
         self.name = (!name.trim().is_empty()).then_some(name);
+    }
+
+    pub fn set_placeholder(&mut self, placeholder: impl Into<String>) {
+        let placeholder = placeholder.into();
+        self.placeholder = (!placeholder.trim().is_empty()).then_some(placeholder);
     }
 
     pub fn set_value(&mut self, value: Option<String>) {
@@ -111,9 +263,29 @@ impl Semantics {
     pub fn actions(&self) -> impl ExactSizeIterator<Item = SemanticAction> + '_ {
         self.actions.iter().copied()
     }
+
+    pub fn virtual_children(&self) -> &[Semantics] {
+        &self.virtual_children
+    }
+
+    pub fn set_active_virtual_child(&mut self, index: usize) -> bool {
+        if index >= self.virtual_children.len() {
+            return false;
+        }
+        self.active_virtual_child = Some(index);
+        true
+    }
+
+    pub fn active_virtual_child(&self) -> Option<usize> {
+        self.active_virtual_child
+    }
+
+    pub fn virtual_child_bounds(&self, index: usize) -> Option<LogicalRect> {
+        self.virtual_child_bounds.get(index).copied().flatten()
+    }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SemanticNode {
     pub id: WidgetId,
     pub parent: Option<WidgetId>,
@@ -121,10 +293,11 @@ pub struct SemanticNode {
     pub semantics: Semantics,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SemanticActionRequest {
     pub target: WidgetId,
     pub action: SemanticAction,
+    pub value: Option<SemanticActionValue>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -192,26 +365,93 @@ impl SemanticSnapshot {
         &self.order
     }
 
+    pub(crate) fn set_virtual_child_bounds(
+        &mut self,
+        target: WidgetId,
+        child_index: usize,
+        bounds: LogicalRect,
+    ) -> bool {
+        let Some(bounds_slot) = self
+            .nodes
+            .get_mut(&target)
+            .and_then(|node| node.semantics.virtual_child_bounds.get_mut(child_index))
+        else {
+            return false;
+        };
+        *bounds_slot = Some(bounds);
+        true
+    }
+
     pub fn request_action(
         &self,
         target: WidgetId,
         action: SemanticAction,
     ) -> Option<SemanticActionRequest> {
+        self.request_action_with_value(target, action, None)
+    }
+
+    pub fn request_action_with_value(
+        &self,
+        target: WidgetId,
+        action: SemanticAction,
+        value: Option<SemanticActionValue>,
+    ) -> Option<SemanticActionRequest> {
         let semantics = &self.get(target)?.semantics;
         let mutable_value_action = matches!(
             action,
-            SemanticAction::Increment | SemanticAction::Decrement | SemanticAction::SetValue
+            SemanticAction::Increment
+                | SemanticAction::Decrement
+                | SemanticAction::SetValue
+                | SemanticAction::SetTextSelection
         );
+        let valid_value = match action {
+            SemanticAction::SetValue => matches!(
+                value,
+                Some(SemanticActionValue::Text(_) | SemanticActionValue::Number(_))
+            ),
+            SemanticAction::SetTextSelection => {
+                matches!(value, Some(SemanticActionValue::TextSelection { .. }))
+            }
+            _ => value.is_none(),
+        };
         (semantics.supports(action)
             && !semantics.state.disabled
-            && !(semantics.state.read_only && mutable_value_action))
-            .then_some(SemanticActionRequest { target, action })
+            && !(semantics.state.read_only && mutable_value_action)
+            && valid_value)
+            .then_some(SemanticActionRequest {
+                target,
+                action,
+                value,
+            })
+    }
+
+    pub fn request_virtual_child_action(
+        &self,
+        target: WidgetId,
+        child_index: usize,
+        action: SemanticAction,
+    ) -> Option<SemanticActionRequest> {
+        let parent = &self.get(target)?.semantics;
+        let child = parent.virtual_children.get(child_index)?;
+        (child.supports(action)
+            && !parent.state.disabled
+            && !parent.state.hidden
+            && !child.state.disabled
+            && !child.state.hidden)
+            .then_some(SemanticActionRequest {
+                target,
+                action,
+                value: Some(SemanticActionValue::Index(child_index)),
+            })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{SemanticAction, SemanticRole, SemanticSnapshot, SemanticState, Semantics};
+    use super::{
+        SemanticAction, SemanticActionValue, SemanticRole, SemanticSnapshot, SemanticState,
+        Semantics,
+    };
     use crate::WidgetTree;
 
     #[test]
@@ -230,6 +470,29 @@ mod tests {
         assert_eq!(semantics.value.as_deref(), Some("weekly"));
         assert_eq!(semantics.state.checked, Some(true));
         assert!(semantics.state.required);
+    }
+
+    #[test]
+    fn numeric_semantics_validate_range_value_and_step() {
+        let numeric = super::SemanticNumericValue::new(40.0, 0.0, 100.0, Some(5.0)).unwrap();
+        assert_eq!(numeric.value(), 40.0);
+        assert_eq!(numeric.range(), 0.0..=100.0);
+        assert_eq!(numeric.step(), Some(5.0));
+        assert!(super::SemanticNumericValue::new(f64::NAN, 0.0, 1.0, None).is_none());
+        assert!(super::SemanticNumericValue::new(2.0, 0.0, 1.0, None).is_none());
+        assert!(super::SemanticNumericValue::new(0.5, 1.0, 0.0, None).is_none());
+        assert!(super::SemanticNumericValue::new(0.5, 0.0, 1.0, Some(0.0)).is_none());
+    }
+
+    #[test]
+    fn editable_text_maps_grapheme_boundaries_to_character_indices() {
+        let text = "aمُ👩‍💻";
+        let editable = super::SemanticEditableText::new(text, 1, 5).unwrap();
+        assert_eq!(editable.character_lengths(), &[1, 4, 11]);
+        assert_eq!(editable.character_index(1), Some(1));
+        assert_eq!(editable.character_index(5), Some(2));
+        assert_eq!(editable.byte_offset(3), Some(text.len()));
+        assert!(super::SemanticEditableText::new(text, 2, 5).is_none());
     }
 
     #[test]
@@ -260,6 +523,15 @@ mod tests {
     }
 
     #[test]
+    fn blank_placeholders_are_treated_as_absent() {
+        let mut semantics = Semantics::new(SemanticRole::TextField).with_placeholder("   ");
+        assert_eq!(semantics.placeholder, None);
+
+        semantics.set_placeholder("Enter name");
+        assert_eq!(semantics.placeholder.as_deref(), Some("Enter name"));
+    }
+
+    #[test]
     fn supported_actions_can_change_with_widget_state() {
         let mut semantics = Semantics::new(SemanticRole::Button);
         assert!(semantics.add_action(SemanticAction::Activate));
@@ -267,6 +539,16 @@ mod tests {
         assert!(semantics.supports(SemanticAction::Activate));
         assert!(semantics.remove_action(SemanticAction::Activate));
         assert!(!semantics.supports(SemanticAction::Activate));
+    }
+
+    #[test]
+    fn active_virtual_child_must_reference_an_existing_child() {
+        let mut semantics = Semantics::new(SemanticRole::Menu)
+            .with_virtual_child(Semantics::new(SemanticRole::MenuItem));
+        assert!(!semantics.set_active_virtual_child(1));
+        assert_eq!(semantics.active_virtual_child(), None);
+        assert!(semantics.set_active_virtual_child(0));
+        assert_eq!(semantics.active_virtual_child(), Some(0));
     }
 
     #[test]
@@ -352,6 +634,7 @@ mod tests {
             Some(super::SemanticActionRequest {
                 target: button,
                 action: SemanticAction::Activate,
+                value: None,
             })
         );
         assert_eq!(
@@ -361,6 +644,28 @@ mod tests {
         assert_eq!(
             snapshot.request_action(read_only_slider, SemanticAction::Increment),
             None
+        );
+    }
+
+    #[test]
+    fn value_action_requests_preserve_backend_neutral_payloads() {
+        let tree = WidgetTree::new(
+            Semantics::new(SemanticRole::TextField).with_action(SemanticAction::SetValue),
+        );
+        let target = tree.root();
+        let snapshot = SemanticSnapshot::build(&tree, |_, semantics| semantics.clone());
+
+        assert_eq!(
+            snapshot.request_action_with_value(
+                target,
+                SemanticAction::SetValue,
+                Some(SemanticActionValue::Text("سلام Mio".into())),
+            ),
+            Some(super::SemanticActionRequest {
+                target,
+                action: SemanticAction::SetValue,
+                value: Some(SemanticActionValue::Text("سلام Mio".into())),
+            })
         );
     }
 }

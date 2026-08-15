@@ -107,6 +107,7 @@ pub fn semantic_action_for_key(
             | SemanticRole::Radio
             | SemanticRole::Switch,
         ) => SemanticAction::Activate,
+        (Key::Enter | Key::Space, SemanticRole::ComboBox) => SemanticAction::ShowMenu,
         (Key::Arrow(ArrowKey::Up), SemanticRole::Slider) => SemanticAction::Increment,
         (Key::Arrow(ArrowKey::Down), SemanticRole::Slider) => SemanticAction::Decrement,
         (Key::Arrow(ArrowKey::Right), SemanticRole::Slider) if direction == Direction::Ltr => {
@@ -321,6 +322,33 @@ mod tests {
                 .action,
             SemanticAction::Decrement
         );
+    }
+
+    #[test]
+    fn combo_box_opening_keys_request_the_declared_menu_action() {
+        let mut tree = WidgetTree::new(Semantics::new(SemanticRole::Generic));
+        let root = tree.root();
+        let combo_box = tree
+            .append(
+                root,
+                Semantics::new(SemanticRole::ComboBox).with_action(SemanticAction::ShowMenu),
+            )
+            .unwrap();
+        let snapshot = SemanticSnapshot::build(&tree, |_, semantics| semantics.clone());
+
+        for key in [Key::Enter, Key::Space] {
+            assert_eq!(
+                semantic_action_for_key(
+                    &snapshot,
+                    combo_box,
+                    &KeyboardEvent::pressed(key),
+                    Direction::Ltr,
+                )
+                .unwrap()
+                .action,
+                SemanticAction::ShowMenu
+            );
+        }
     }
 
     #[test]

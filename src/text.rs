@@ -102,6 +102,10 @@ pub struct GlyphAtlasKey(CacheKey);
 
 impl GlyphRasterDescriptor {
     fn cache_key(&self, scale_factor: f32) -> CacheKey {
+        self.physical(scale_factor).0
+    }
+
+    fn physical(&self, scale_factor: f32) -> (CacheKey, i32, i32) {
         let scale_factor = scale_factor.max(f32::EPSILON);
         let x_offset = self.font_size * self.x_offset;
         let y_offset = self.font_size * self.y_offset;
@@ -116,7 +120,6 @@ impl GlyphRasterDescriptor {
             self.font_weight,
             self.flags,
         )
-        .0
     }
 
     pub fn atlas_key(&self, scale_factor: f32) -> GlyphAtlasKey {
@@ -190,6 +193,13 @@ pub struct ShapedGlyph {
     pub width: f32,
     pub rtl: bool,
     pub raster: GlyphRasterDescriptor,
+}
+
+impl ShapedGlyph {
+    pub(crate) fn physical_position(&self, scale_factor: f32) -> [i32; 2] {
+        let (_, x, y) = self.raster.physical(scale_factor);
+        [x, y]
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

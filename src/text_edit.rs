@@ -8,6 +8,8 @@ use crate::{ClipboardError, TextClipboard};
 pub struct TextEditState {
     text: String,
     selection: Range<usize>,
+    selection_anchor: usize,
+    selection_caret: usize,
     composition: Option<Composition>,
 }
 
@@ -15,6 +17,8 @@ pub struct TextEditState {
 struct Composition {
     range: Range<usize>,
     original_selection: Range<usize>,
+    original_anchor: usize,
+    original_caret: usize,
     replaced_text: String,
 }
 
@@ -25,6 +29,8 @@ impl TextEditState {
         Self {
             text,
             selection: caret..caret,
+            selection_anchor: caret,
+            selection_caret: caret,
             composition: None,
         }
     }
@@ -37,17 +43,32 @@ impl TextEditState {
         self.selection.clone()
     }
 
+    pub fn selection_anchor(&self) -> usize {
+        self.selection_anchor
+    }
+
+    pub fn caret(&self) -> usize {
+        self.selection_caret
+    }
+
     pub fn set_selection(&mut self, selection: Range<usize>) {
         self.commit_composition();
         let start = snap_boundary(&self.text, selection.start, false);
         let end = snap_boundary(&self.text, selection.end, true);
-        self.selection = start.min(end)..start.max(end);
+        self.apply_selection(start, end);
+    }
+
+    pub fn set_selection_from_anchor(&mut self, anchor: usize, caret: usize) {
+        self.commit_composition();
+        let anchor = snap_boundary(&self.text, anchor, false);
+        let caret = snap_boundary(&self.text, caret, false);
+        self.apply_selection(anchor, caret);
     }
 
     pub fn set_caret(&mut self, byte_index: usize) {
         self.commit_composition();
         let caret = snap_boundary(&self.text, byte_index, false);
-        self.selection = caret..caret;
+        self.apply_selection(caret, caret);
     }
 
     pub fn selected_text(&self) -> &str {
@@ -109,7 +130,7 @@ impl TextEditState {
         if previous == caret {
             return false;
         }
-        self.selection = previous..caret;
+        self.apply_selection(previous, caret);
         self.replace_selection_raw("");
         true
     }
@@ -125,14 +146,79 @@ impl TextEditState {
         if next == caret {
             return false;
         }
-        self.selection = caret..next;
+        self.apply_selection(caret, next);
         self.replace_selection_raw("");
         true
     }
 
     pub fn select_all(&mut self) {
         self.commit_composition();
-        self.selection = 0..self.text.len();
+        self.apply_selection(0, self.text.len());
+    }
+
+    pub fn move_backward(&mut self, selecting: bool) -> bool {
+        self.commit_composition();
+        if !selecting && !self.selection.is_empty() {
+            self.apply_selection(self.selection.start, self.selection.start);
+            return true;
+        }
+        let caret = self.selection_caret;
+        let previous = previous_boundary(&self.text, caret);
+        if previous == caret {
+            return false;
+        }
+        if selecting {
+            self.apply_selection(self.selection_anchor, previous);
+        } else {
+            self.apply_selection(previous, previous);
+        }
+        true
+    }
+
+    pub fn move_forward(&mut self, selecting: bool) -> bool {
+        self.commit_composition();
+        if !selecting && !self.selection.is_empty() {
+            self.apply_selection(self.selection.end, self.selection.end);
+            return true;
+        }
+        let caret = self.selection_caret;
+        let next = next_boundary(&self.text, caret);
+        if next == caret {
+            return false;
+        }
+        if selecting {
+            self.apply_selection(self.selection_anchor, next);
+        } else {
+            self.apply_selection(next, next);
+        }
+        true
+    }
+
+    pub fn move_to_start(&mut self, selecting: bool) -> bool {
+        self.commit_composition();
+        if self.selection_caret == 0 {
+            return false;
+        }
+        if selecting {
+            self.apply_selection(self.selection_anchor, 0);
+        } else {
+            self.apply_selection(0, 0);
+        }
+        true
+    }
+
+    pub fn move_to_end(&mut self, selecting: bool) -> bool {
+        self.commit_composition();
+        let end = self.text.len();
+        if self.selection_caret == end {
+            return false;
+        }
+        if selecting {
+            self.apply_selection(self.selection_anchor, end);
+        } else {
+            self.apply_selection(end, end);
+        }
+        true
     }
 
     pub fn replace_selection(&mut self, replacement: &str) {
@@ -149,12 +235,16 @@ impl TextEditState {
     pub fn begin_composition(&mut self, preedit: &str) {
         self.cancel_composition();
         let original_selection = self.selection.clone();
+        let original_anchor = self.selection_anchor;
+        let original_caret = self.selection_caret;
         let replaced_text = self.selected_text().to_owned();
         let start = self.selection.start;
         self.replace_selection_raw(preedit);
         self.composition = Some(Composition {
             range: start..start + preedit.len(),
             original_selection,
+            original_anchor,
+            original_caret,
             replaced_text,
         });
     }
@@ -181,13 +271,15 @@ impl TextEditState {
         if let Some(selection) = selection {
             self.set_preedit_selection(selection);
         } else {
-            self.selection = composition.range.end..composition.range.end;
+            let caret = composition.range.end;
+            self.apply_selection(caret, caret);
         }
     }
 
     pub fn commit_composition(&mut self) {
         if let Some(composition) = self.composition.take() {
-            self.selection = composition.range.end..composition.range.end;
+            let caret = composition.range.end;
+            self.apply_selection(caret, caret);
         }
     }
 
@@ -198,13 +290,15 @@ impl TextEditState {
         self.text
             .replace_range(composition.range, &composition.replaced_text);
         self.selection = composition.original_selection;
+        self.selection_anchor = composition.original_anchor;
+        self.selection_caret = composition.original_caret;
     }
 
     fn replace_selection_raw(&mut self, replacement: &str) {
         let start = self.selection.start;
         self.text.replace_range(self.selection.clone(), replacement);
         let caret = start + replacement.len();
-        self.selection = caret..caret;
+        self.apply_selection(caret, caret);
     }
 
     fn set_preedit_selection(&mut self, selection: Range<usize>) {
@@ -214,7 +308,16 @@ impl TextEditState {
         let preedit = &self.text[composition.range.clone()];
         let start = snap_boundary(preedit, selection.start, false);
         let end = snap_boundary(preedit, selection.end, true);
-        self.selection = composition.range.start + start..composition.range.start + end;
+        self.apply_selection(
+            composition.range.start + start,
+            composition.range.start + end,
+        );
+    }
+
+    fn apply_selection(&mut self, anchor: usize, caret: usize) {
+        self.selection_anchor = anchor;
+        self.selection_caret = caret;
+        self.selection = anchor.min(caret)..anchor.max(caret);
     }
 }
 
@@ -492,5 +595,52 @@ mod tests {
 
         assert_eq!(state.composition_range(), None);
         assert_eq!(state.selected_text(), "متن جدید");
+    }
+
+    #[test]
+    fn caret_movement_and_extension_preserve_grapheme_boundaries() {
+        let mut state = TextEditState::new("aمُ👩‍💻");
+        assert!(state.move_backward(false));
+        assert_eq!(state.selection(), "aمُ".len().."aمُ".len());
+        assert!(state.move_backward(true));
+        assert_eq!(state.selected_text(), "مُ");
+        assert!(state.move_forward(false));
+        assert_eq!(state.selection(), "aمُ".len().."aمُ".len());
+        assert!(state.move_to_start(true));
+        assert_eq!(state.selected_text(), "aمُ");
+        assert!(state.move_to_end(false));
+        assert_eq!(state.selection(), state.text().len()..state.text().len());
+    }
+
+    #[test]
+    fn shift_movement_shrinks_and_reverses_around_a_stable_anchor() {
+        let mut state = TextEditState::new("abcd");
+        state.set_caret(2);
+
+        assert!(state.move_forward(true));
+        assert_eq!(state.selection(), 2..3);
+        assert_eq!(state.selection_anchor(), 2);
+        assert_eq!(state.caret(), 3);
+        assert!(state.move_backward(true));
+        assert_eq!(state.selection(), 2..2);
+        assert!(state.move_backward(true));
+        assert_eq!(state.selection(), 1..2);
+        assert_eq!(state.selection_anchor(), 2);
+        assert_eq!(state.caret(), 1);
+    }
+
+    #[test]
+    fn anchored_pointer_selection_can_cross_and_shrink() {
+        let mut state = TextEditState::new("abcdef");
+        state.set_selection_from_anchor(4, 1);
+        assert_eq!(state.selection(), 1..4);
+        assert_eq!(state.caret(), 1);
+
+        state.set_selection_from_anchor(4, 3);
+        assert_eq!(state.selection(), 3..4);
+        state.set_selection_from_anchor(4, 5);
+        assert_eq!(state.selection(), 4..5);
+        assert_eq!(state.selection_anchor(), 4);
+        assert_eq!(state.caret(), 5);
     }
 }

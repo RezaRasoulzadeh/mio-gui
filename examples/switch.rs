@@ -1,25 +1,14 @@
-// radio.rs
+// switch.rs
 
 use mio_gui::{
-    Column, Direction, LogicalConstraints, LogicalPoint, Radio, TextSystem, ThemeController,
+    Direction, LogicalConstraints, LogicalPoint, Switch, TextSystem, ThemeController,
     ThemeDefinition, UserPreferences, Widget, WidgetFrame, WidgetPlacement, WidgetTree,
 };
 
 fn main() {
-    let mut tree = WidgetTree::new(Widget::from(Column::default()));
-    let root = tree.root();
-    tree.append(
-        root,
-        Widget::from(Radio::new("Standard delivery").with_group("delivery", "standard")),
-    )
-    .unwrap();
-    let express = tree
-        .append(
-            root,
-            Widget::from(Radio::new("Express delivery").with_group("delivery", "express")),
-        )
-        .unwrap();
-    tree.select_radio(express);
+    let mut switch = Switch::new("Enable notifications");
+    switch.checked = true;
+    let tree = WidgetTree::new(Widget::from(switch));
     let theme =
         ThemeDefinition::default().resolve(ThemeController::default(), UserPreferences::default());
     let mut text_system = TextSystem::new();
@@ -31,10 +20,10 @@ fn main() {
         )
     });
     println!(
-        "selected={} indicators={} labels={}",
+        "checked={} control_parts={} labels={}",
         frame
             .semantics
-            .get(express)
+            .get(tree.root())
             .unwrap()
             .semantics
             .state

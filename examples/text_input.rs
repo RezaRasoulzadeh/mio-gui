@@ -1,25 +1,15 @@
-// radio.rs
+// text_input.rs
 
 use mio_gui::{
-    Column, Direction, LogicalConstraints, LogicalPoint, Radio, TextSystem, ThemeController,
+    Direction, LogicalConstraints, LogicalPoint, TextInput, TextSystem, ThemeController,
     ThemeDefinition, UserPreferences, Widget, WidgetFrame, WidgetPlacement, WidgetTree,
 };
 
 fn main() {
-    let mut tree = WidgetTree::new(Widget::from(Column::default()));
-    let root = tree.root();
-    tree.append(
-        root,
-        Widget::from(Radio::new("Standard delivery").with_group("delivery", "standard")),
-    )
-    .unwrap();
-    let express = tree
-        .append(
-            root,
-            Widget::from(Radio::new("Express delivery").with_group("delivery", "express")),
-        )
-        .unwrap();
-    tree.select_radio(express);
+    let mut input = TextInput::with_text("Name", "رضا");
+    input.set_placeholder("Enter your name");
+    input.required = true;
+    let tree = WidgetTree::new(Widget::from(input));
     let theme =
         ThemeDefinition::default().resolve(ThemeController::default(), UserPreferences::default());
     let mut text_system = TextSystem::new();
@@ -31,14 +21,14 @@ fn main() {
         )
     });
     println!(
-        "selected={} indicators={} labels={}",
+        "value={} backgrounds={} text_runs={}",
         frame
             .semantics
-            .get(express)
+            .get(tree.root())
             .unwrap()
             .semantics
-            .state
-            .checked
+            .value
+            .as_deref()
             .unwrap(),
         frame.rectangles.len(),
         frame.text.len()

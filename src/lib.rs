@@ -22,6 +22,7 @@ mod text;
 mod text_edit;
 mod theme;
 mod update;
+mod widget_app;
 mod widget_tree;
 mod widgets;
 mod winit_keyboard;
@@ -31,8 +32,8 @@ mod winit_preferences;
 pub(crate) static GPU_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 pub use accessibility::{
-    SemanticAction, SemanticActionRequest, SemanticNode, SemanticRole, SemanticSnapshot,
-    SemanticState, Semantics,
+    SemanticAction, SemanticActionRequest, SemanticActionValue, SemanticEditableText, SemanticNode,
+    SemanticNumericValue, SemanticRole, SemanticSnapshot, SemanticState, Semantics,
 };
 pub use accesskit_adapter::PlatformAccessibility;
 pub use app::run;
@@ -87,14 +88,21 @@ pub use theme::{
 pub use update::{
     DispatchReport, Invalidation, RedrawRequest, UpdateQueue, UpdateRuntime, WidgetMessage,
 };
+pub use widget_app::run_widget_tree;
 pub use widget_tree::{WidgetId, WidgetNode, WidgetTree, WidgetTreeError};
 pub use widgets::{
     BlockAlignment, Button, ButtonDraws, ButtonLayout, ButtonStyle, Checkbox, CheckboxDraws,
-    CheckboxLayout, Column, Container, Divider, DividerAxis, Icon, IconButton, IconButtonLayout,
-    IconError, IconLayout, Image, ImageAlignment, ImageFit, ImageLayout, Radio, RadioDraws,
-    RadioLayout, Row, ScrollAxis, ScrollLayout, ScrollOffset, ScrollView, Spacer, Stack,
-    StackChild, StackLayout, Surface, Text, TextLayout, TextLayoutLine, TextWrap, Widget,
-    WidgetFrame, WidgetPlacement,
+    CheckboxLayout, Column, Container, ContextMenu, ContextMenuAction, ContextMenuLayout, Divider,
+    DividerAxis, Drawer, DrawerAction, DrawerEdge, DrawerLayout, Dropdown, DropdownAction,
+    DropdownDraws, DropdownLayout, Icon, IconButton, IconButtonLayout, IconError, IconLayout,
+    Image, ImageAlignment, ImageFit, ImageLayout, Menu, MenuAction, MenuDraws, MenuError, MenuItem,
+    MenuLayout, Modal, ModalAction, ModalLayout, Popover, PopoverAction, PopoverLayout, Radio,
+    RadioDraws, RadioLayout, Row, ScrollAxis, ScrollLayout, ScrollOffset, ScrollView, SearchInput,
+    SearchInputAction, SearchInputDraws, SearchInputLayout, Select, SelectAction, SelectDraws,
+    SelectError, SelectLayout, SelectOption, Slider, SliderError, SliderLayout, Spacer, Stack,
+    StackChild, StackLayout, Surface, Switch, SwitchDraws, SwitchLayout, Text, TextArea, TextInput,
+    TextInputDraws, TextInputLayout, TextLayout, TextLayoutLine, TextWrap, Tooltip, TooltipDraws,
+    TooltipLayout, TooltipPlacement, Widget, WidgetFrame, WidgetPlacement,
 };
 pub use winit_keyboard::keyboard_event_from_winit;
 pub use winit_preferences::{apply_winit_theme, color_scheme_from_winit};

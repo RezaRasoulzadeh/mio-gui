@@ -1,4 +1,4 @@
-// radio.rs
+// switch.rs
 
 use crate::{
     Direction, DirectionSetting, FocusPolicy, LogicalConstraints, LogicalPoint, LogicalSize,
@@ -7,22 +7,18 @@ use crate::{
 };
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Radio {
+pub struct Switch {
     label: String,
-    group: Option<String>,
-    value: Option<String>,
-    pub selected: bool,
+    pub checked: bool,
     pub disabled: bool,
     pub direction: DirectionSetting,
 }
 
-impl Radio {
+impl Switch {
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
-            group: None,
-            value: None,
-            selected: false,
+            checked: false,
             disabled: false,
             direction: DirectionSetting::Inherit,
         }
@@ -36,34 +32,20 @@ impl Radio {
         self.label = label.into();
     }
 
-    pub fn with_group(mut self, group: impl Into<String>, value: impl Into<String>) -> Self {
-        self.group = Some(group.into());
-        self.value = Some(value.into());
-        self
-    }
-
-    pub fn group(&self) -> Option<&str> {
-        self.group.as_deref()
-    }
-
-    pub fn value(&self) -> Option<&str> {
-        self.value.as_deref()
-    }
-
     pub fn activate(&mut self) -> bool {
-        if self.disabled || self.selected {
+        if self.disabled {
             return false;
         }
-        self.selected = true;
+        self.checked = !self.checked;
         true
     }
 
     pub fn semantics(&self) -> Semantics {
-        let mut semantics = Semantics::new(SemanticRole::Radio)
+        let mut semantics = Semantics::new(SemanticRole::Switch)
             .with_name(self.label.clone())
             .with_action(SemanticAction::Focus)
             .with_action(SemanticAction::Activate);
-        semantics.state.checked = Some(self.selected);
+        semantics.state.checked = Some(self.checked);
         semantics.state.disabled = self.disabled;
         semantics
     }
@@ -82,10 +64,12 @@ impl Radio {
         theme: &ResolvedTheme,
         inherited_direction: Direction,
         constraints: LogicalConstraints,
-    ) -> RadioLayout {
+    ) -> SwitchLayout {
         let direction = self.direction.resolve(inherited_direction);
-        let indicator_extent = theme.typography.size.max(16.0);
+        let track_height = theme.typography.size.max(16.0);
+        let track_size = LogicalSize::new(track_height * 1.75, track_height);
         let gap = theme.spacing.small;
+        let reserved = track_size.width + gap;
         let mut label = Text::new(self.label.clone());
         label.direction = match direction {
             Direction::Ltr => DirectionSetting::Ltr,
@@ -100,7 +84,6 @@ impl Radio {
             weight: theme.typography.weight,
             ..TextStyle::default()
         };
-        let reserved = indicator_extent + gap;
         let label = label.layout(
             text_system,
             direction,
@@ -111,19 +94,19 @@ impl Radio {
         );
         let size = constraints.constrain(LogicalSize::new(
             reserved + label.size.width,
-            indicator_extent.max(label.size.height),
+            track_size.height.max(label.size.height),
         ));
-        let indicator_y = ((size.height - indicator_extent) * 0.5).max(0.0);
+        let track_y = ((size.height - track_size.height) * 0.5).max(0.0);
         let label_y = ((size.height - label.size.height) * 0.5).max(0.0);
-        let (indicator_x, label_x) = match direction {
+        let (track_x, label_x) = match direction {
             Direction::Ltr => (0.0, reserved),
-            Direction::Rtl => ((size.width - indicator_extent).max(0.0), 0.0),
+            Direction::Rtl => ((size.width - track_size.width).max(0.0), 0.0),
         };
-        RadioLayout {
+        SwitchLayout {
             size,
             direction,
-            indicator_origin: LogicalPoint::new(indicator_x, indicator_y),
-            indicator_extent,
+            track_origin: LogicalPoint::new(track_x, track_y),
+            track_size,
             label,
             label_origin: LogicalPoint::new(label_x, label_y),
         }
@@ -131,57 +114,65 @@ impl Radio {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RadioLayout {
+pub struct SwitchLayout {
     pub size: LogicalSize,
     pub direction: Direction,
-    pub indicator_origin: LogicalPoint,
-    pub indicator_extent: f32,
+    pub track_origin: LogicalPoint,
+    pub track_size: LogicalSize,
     pub label: crate::TextLayout,
     pub label_origin: LogicalPoint,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct RadioDraws {
-    pub indicator: Vec<RectDraw>,
+pub struct SwitchDraws {
+    pub control: Vec<RectDraw>,
     pub label: Vec<TextDraw>,
 }
 
-impl RadioLayout {
-    pub fn draws(&self, radio: &Radio, origin: LogicalPoint, theme: &ResolvedTheme) -> RadioDraws {
-        let opacity = if radio.disabled { 0.45 } else { 1.0 };
-        let indicator_origin = add(origin, self.indicator_origin);
-        let radius = self.indicator_extent * 0.5;
-        let mut indicator = vec![RectDraw {
-            position: [indicator_origin.x, indicator_origin.y],
-            size: [self.indicator_extent; 2],
-            radii: [radius; 4],
-            color: faded(theme.colors.surface.to_array(), opacity),
-            border_width: theme.borders.thin,
-            border_color: faded(
-                if radio.selected {
-                    theme.colors.primary.to_array()
-                } else {
-                    theme.colors.border.to_array()
+impl SwitchLayout {
+    pub fn draws(
+        &self,
+        switch: &Switch,
+        origin: LogicalPoint,
+        theme: &ResolvedTheme,
+    ) -> SwitchDraws {
+        let opacity = if switch.disabled { 0.45 } else { 1.0 };
+        let track_origin = add(origin, self.track_origin);
+        let radius = self.track_size.height * 0.5;
+        let track_color = if switch.checked {
+            theme.colors.primary
+        } else {
+            theme.colors.border
+        };
+        let thumb_extent = self.track_size.height * 0.75;
+        let inset = (self.track_size.height - thumb_extent) * 0.5;
+        let thumb_x = match (self.direction, switch.checked) {
+            (Direction::Ltr, false) | (Direction::Rtl, true) => track_origin.x + inset,
+            (Direction::Ltr, true) | (Direction::Rtl, false) => {
+                track_origin.x + self.track_size.width - thumb_extent - inset
+            }
+        };
+        SwitchDraws {
+            control: vec![
+                RectDraw {
+                    position: [track_origin.x, track_origin.y],
+                    size: [self.track_size.width, self.track_size.height],
+                    radii: [radius; 4],
+                    color: faded(track_color.to_array(), opacity),
+                    border_width: 0.0,
+                    border_color: [0.0; 4],
                 },
-                opacity,
-            ),
-        }];
-        if radio.selected {
-            let inset = self.indicator_extent * 0.3;
-            let inner = self.indicator_extent - inset * 2.0;
-            indicator.push(RectDraw {
-                position: [indicator_origin.x + inset, indicator_origin.y + inset],
-                size: [inner; 2],
-                radii: [inner * 0.5; 4],
-                color: faded(theme.colors.primary.to_array(), opacity),
-                border_width: 0.0,
-                border_color: [0.0; 4],
-            });
-        }
-        RadioDraws {
-            indicator,
+                RectDraw {
+                    position: [thumb_x, track_origin.y + inset],
+                    size: [thumb_extent; 2],
+                    radii: [thumb_extent * 0.5; 4],
+                    color: faded(theme.colors.surface.to_array(), opacity),
+                    border_width: 0.0,
+                    border_color: [0.0; 4],
+                },
+            ],
             label: self.label.draws(
-                radio.label(),
+                switch.label(),
                 add(origin, self.label_origin),
                 faded(theme.colors.text.to_array(), opacity),
             ),
@@ -208,7 +199,7 @@ fn faded(mut color: [f32; 4], opacity: f32) -> [f32; 4] {
 
 #[cfg(test)]
 mod tests {
-    use super::Radio;
+    use super::Switch;
     use crate::{
         Direction, LogicalConstraints, LogicalPoint, SemanticRole, TextSystem, ThemeController,
         ThemeDefinition, UserPreferences,
@@ -219,56 +210,51 @@ mod tests {
     }
 
     #[test]
-    fn activation_selects_once_and_respects_disabled_state() {
-        let mut radio = Radio::new("Standard");
-        assert!(radio.activate());
-        assert!(radio.selected);
-        assert!(!radio.activate());
-        radio.selected = false;
-        radio.disabled = true;
-        assert!(!radio.activate());
+    fn activation_toggles_only_enabled_switches() {
+        let mut switch = Switch::new("Notifications");
+        assert!(switch.activate());
+        assert!(switch.checked);
+        switch.disabled = true;
+        assert!(!switch.activate());
+        assert!(switch.checked);
     }
 
     #[test]
-    fn semantics_expose_radio_selection() {
-        let mut radio = Radio::new("Standard");
-        radio.selected = true;
-        let semantics = radio.semantics();
-        assert_eq!(semantics.role, SemanticRole::Radio);
+    fn semantics_expose_switch_state() {
+        let mut switch = Switch::new("Notifications");
+        switch.checked = true;
+        let semantics = switch.semantics();
+        assert_eq!(semantics.role, SemanticRole::Switch);
         assert_eq!(semantics.state.checked, Some(true));
-        assert_eq!(semantics.name.as_deref(), Some("Standard"));
+        assert_eq!(semantics.name.as_deref(), Some("Notifications"));
     }
 
     #[test]
-    fn groups_are_explicit_and_preserve_the_option_value() {
-        let radio = Radio::new("Express").with_group("delivery", "express");
-        assert_eq!(radio.group(), Some("delivery"));
-        assert_eq!(radio.value(), Some("express"));
-    }
-
-    #[test]
-    fn layout_and_paint_mirror_and_show_selected_dot() {
-        let mut radio = Radio::new("Standard");
-        radio.selected = true;
+    fn rtl_layout_and_checked_thumb_follow_logical_direction() {
+        let mut switch = Switch::new("Notifications");
+        switch.checked = true;
         let theme = theme();
         let mut text_system = TextSystem::new();
-        let ltr = radio.layout(
+        let ltr = switch.layout(
             &mut text_system,
             &theme,
             Direction::Ltr,
             LogicalConstraints::unconstrained(),
         );
-        let rtl = radio.layout(
+        let rtl = switch.layout(
             &mut text_system,
             &theme,
             Direction::Rtl,
             LogicalConstraints::unconstrained(),
         );
-        assert!(ltr.indicator_origin.x < ltr.label_origin.x);
-        assert!(rtl.indicator_origin.x > rtl.label_origin.x);
-        assert_eq!(ltr.size, rtl.size);
-        let draws = rtl.draws(&radio, LogicalPoint::default(), &theme);
-        assert_eq!(draws.indicator.len(), 2);
-        assert_eq!(draws.indicator[1].color, theme.colors.primary.to_array());
+        assert!(ltr.track_origin.x < ltr.label_origin.x);
+        assert!(rtl.track_origin.x > rtl.label_origin.x);
+        let ltr_draws = ltr.draws(&switch, LogicalPoint::default(), &theme);
+        let rtl_draws = rtl.draws(&switch, LogicalPoint::default(), &theme);
+        assert!(ltr_draws.control[1].position[0] > ltr_draws.control[0].position[0]);
+        assert_eq!(
+            rtl_draws.control[1].position[0],
+            rtl_draws.control[0].position[0] + 2.0
+        );
     }
 }

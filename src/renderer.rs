@@ -5,7 +5,7 @@ use winit::window::Window;
 
 use crate::glyph_atlas::{AtlasInsert, GpuGlyphAtlas};
 use crate::text::{RasterizedGlyph, ShapedGlyph, TextSystem};
-use crate::{ImageDraw, PixelFormat, RectDraw, TextAlign, TextDraw};
+use crate::{ImageDraw, PixelFormat, RectDraw, TextAlign, TextDraw, WidgetFrame};
 
 const MAX_RECTANGLES: usize = 1024;
 const MAX_GLYPHS: usize = 4096;
@@ -50,6 +50,7 @@ struct ImageUniform {
     clip_position: [f32; 2],
     clip_size: [f32; 2],
     viewport: [f32; 2],
+    _viewport_padding: [f32; 2],
     tint: [f32; 4],
     mirror_horizontal: u32,
     has_tint: u32,
@@ -77,6 +78,7 @@ impl ImageUniform {
                 draw.clip.size.height.max(0.0) * scale_factor,
             ],
             viewport,
+            _viewport_padding: [0.0; 2],
             tint: draw.tint.unwrap_or([1.0; 4]),
             mirror_horizontal: u32::from(draw.mirror_horizontal),
             has_tint: u32::from(draw.tint.is_some()),
@@ -259,6 +261,7 @@ pub struct Renderer {
     text_system: TextSystem,
     text_draws: Vec<TextDraw>,
     rect_draws: Vec<RectDraw>,
+    clear_color: wgpu::Color,
 }
 
 impl Renderer {
@@ -397,8 +400,8 @@ impl Renderer {
         });
         let glyph_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("glyph_sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
         let glyph_bind_group_layout =
@@ -585,6 +588,12 @@ impl Renderer {
             text_system: TextSystem::new(),
             text_draws: Vec::new(),
             rect_draws: Vec::new(),
+            clear_color: wgpu::Color {
+                r: 0.11,
+                g: 0.11,
+                b: 0.13,
+                a: 1.0,
+            },
         };
         Ok(renderer)
     }
@@ -752,6 +761,23 @@ impl Renderer {
         self.rebuild_images();
     }
 
+    pub fn set_widget_frame(&mut self, frame: &WidgetFrame) -> bool {
+        self.set_rect_draws(&frame.rectangles);
+        let text_ready = self.set_text_draws(&frame.text);
+        self.set_image_draws(&frame.images);
+        text_ready
+    }
+
+    pub fn set_clear_color(&mut self, color: crate::LinearColor) {
+        let [r, g, b, a] = color.to_array();
+        self.clear_color = wgpu::Color {
+            r: f64::from(r),
+            g: f64::from(g),
+            b: f64::from(b),
+            a: f64::from(a),
+        };
+    }
+
     pub fn scale_factor(&self) -> f32 {
         self.scale_factor
     }
@@ -772,10 +798,8 @@ impl Renderer {
                 let Some(image) = self.text_system.rasterize_glyph(glyph, scale_factor) else {
                     continue;
                 };
-                let position = [
-                    line_start + glyph.x * scale_factor + image.left as f32,
-                    baseline - image.top as f32,
-                ];
+                let position =
+                    glyph_quad_position(line_start, baseline, glyph, &image, scale_factor);
                 prepared.push((glyph.clone(), image, position, draw.color));
             }
         }
@@ -954,12 +978,7 @@ impl Renderer {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.11,
-                            g: 0.11,
-                            b: 0.13,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.clear_color),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -1014,9 +1033,25 @@ fn aligned_line_start(anchor: f32, width: f32, align: TextAlign, rtl: bool) -> f
     }
 }
 
+fn glyph_quad_position(
+    line_start: f32,
+    baseline: f32,
+    glyph: &ShapedGlyph,
+    image: &RasterizedGlyph,
+    scale_factor: f32,
+) -> [f32; 2] {
+    let physical = glyph.physical_position(scale_factor);
+    [
+        line_start.round() + physical[0] as f32 + image.left as f32,
+        baseline.round() + physical[1] as f32 - image.top as f32,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ImageUniform, RectDraw, RectUniform, TextAlign, aligned_line_start};
+    use super::{
+        ImageUniform, RectDraw, RectUniform, TextAlign, aligned_line_start, glyph_quad_position,
+    };
     use crate::raster::RoundedRectMask;
     use crate::{
         GPU_TEST_LOCK, ImageDraw, LogicalPoint, LogicalRect, LogicalSize, PixelFormat, PixelImage,
@@ -1042,6 +1077,27 @@ mod tests {
         assert_eq!(uniform.mirror_horizontal, 1);
         assert_eq!(uniform.has_tint, 1);
         assert_eq!(uniform.tint, [0.2, 0.4, 0.6, 0.8]);
+    }
+
+    #[test]
+    fn image_uniform_matches_wgsl_storage_layout() {
+        assert_eq!(std::mem::size_of::<ImageUniform>(), 80);
+        assert_eq!(std::mem::offset_of!(ImageUniform, viewport), 32);
+        assert_eq!(std::mem::offset_of!(ImageUniform, tint), 48);
+        assert_eq!(std::mem::offset_of!(ImageUniform, mirror_horizontal), 64);
+        assert_eq!(std::mem::offset_of!(ImageUniform, has_tint), 68);
+    }
+
+    #[test]
+    fn rasterized_glyph_quads_are_aligned_to_physical_pixels() {
+        let mut text_system = crate::TextSystem::new();
+        let line = text_system.shape_line("Mio", 16.0, 24.0);
+        let glyph = &line.glyphs[0];
+        let image = text_system.rasterize_glyph(glyph, 1.5).unwrap();
+        let position = glyph_quad_position(10.25, 30.75, glyph, &image, 1.5);
+
+        assert_eq!(position[0].fract(), 0.0);
+        assert_eq!(position[1].fract(), 0.0);
     }
 
     struct GpuCapture {

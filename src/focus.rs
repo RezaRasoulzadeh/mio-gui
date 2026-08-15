@@ -35,6 +35,7 @@ pub struct FocusIndicator {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FocusPolicy {
     pub focusable: bool,
+    pub skip_tab_order: bool,
     pub disabled: bool,
     pub hidden: bool,
     pub inert: bool,
@@ -44,6 +45,7 @@ impl FocusPolicy {
     pub const fn focusable() -> Self {
         Self {
             focusable: true,
+            skip_tab_order: false,
             disabled: false,
             hidden: false,
             inert: false,
@@ -54,6 +56,7 @@ impl FocusPolicy {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EffectiveFocusPolicy {
     pub focusable: bool,
+    pub skip_tab_order: bool,
     pub disabled: bool,
     pub hidden: bool,
     pub inert: bool,
@@ -87,6 +90,7 @@ impl FocusSnapshot {
             let local = policy(id, &node.state);
             let effective = EffectiveFocusPolicy {
                 focusable: local.focusable,
+                skip_tab_order: local.skip_tab_order,
                 disabled: ancestor_disabled || local.disabled,
                 hidden: ancestor_hidden || local.hidden,
                 inert: ancestor_inert || local.inert,
@@ -106,7 +110,7 @@ impl FocusSnapshot {
         let tab_order = semantic_order
             .iter()
             .copied()
-            .filter(|widget| policies[widget].accepts_focus())
+            .filter(|widget| policies[widget].accepts_focus() && !policies[widget].skip_tab_order)
             .collect();
         Self {
             policies,
@@ -367,6 +371,23 @@ mod tests {
         assert!(!manager.focus(&snapshot, crate::WidgetId::from_test_value(999)));
         assert!(manager.focus(&snapshot, eligible));
         assert_eq!(manager.focused(), Some(eligible));
+    }
+
+    #[test]
+    fn skipped_tab_stop_still_accepts_programmatic_focus() {
+        let policy = FocusPolicy {
+            focusable: true,
+            skip_tab_order: true,
+            ..FocusPolicy::default()
+        };
+        let tree = WidgetTree::new(policy);
+        let root = tree.root();
+        let snapshot = FocusSnapshot::build(&tree, |_, policy| *policy);
+        let mut manager = FocusManager::default();
+
+        assert!(snapshot.accepts_focus(root));
+        assert!(snapshot.tab_order().is_empty());
+        assert!(manager.focus(&snapshot, root));
     }
 
     #[test]
