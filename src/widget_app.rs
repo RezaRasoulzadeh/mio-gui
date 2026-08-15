@@ -393,7 +393,6 @@ impl WidgetApp {
             .find(|id| match &self.tree.get(*id).unwrap().state {
                 Widget::Modal(modal) => modal.open,
                 Widget::Drawer(drawer) => drawer.open,
-                Widget::Toast(toast) => toast.open,
                 _ => false,
             })
     }
@@ -409,6 +408,7 @@ impl WidgetApp {
                 Widget::Popover(popover) => popover.open,
                 Widget::Modal(modal) => modal.open,
                 Widget::Drawer(drawer) => drawer.open,
+                Widget::Toast(toast) => toast.open,
                 _ => false,
             })
     }
@@ -1423,6 +1423,60 @@ mod tests {
             unreachable!()
         };
         assert!(switch.checked);
+    }
+
+    #[test]
+    fn nested_gallery_geometry_routes_pointer_and_tab_to_controls() {
+        use crate::{
+            LogicalConstraints, LogicalPoint, Row, Text, TextSystem, ThemeController,
+            ThemeDefinition, UserPreferences, WidgetFrame, WidgetPlacement,
+        };
+        let mut tree = WidgetTree::new(Widget::from(Column::default()));
+        let root = tree.root();
+        tree.append(root, Widget::from(Text::new("Gallery")))
+            .unwrap();
+        let row = tree.append(root, Widget::from(Row::default())).unwrap();
+        let left = tree.append(row, Widget::from(Column::default())).unwrap();
+        let right = tree.append(row, Widget::from(Column::default())).unwrap();
+        tree.append(right, Widget::from(crate::Toast::new("Saved")))
+            .unwrap();
+        let input = tree
+            .append(left, Widget::from(TextInput::new("Name")))
+            .unwrap();
+        let checkbox = tree
+            .append(right, Widget::from(Checkbox::new("Updates")))
+            .unwrap();
+        let theme = ThemeDefinition::default()
+            .resolve(ThemeController::default(), UserPreferences::default());
+        let mut text_system = TextSystem::new();
+        let frame = WidgetFrame::build_composed(
+            &tree,
+            &mut text_system,
+            &theme,
+            WidgetPlacement::new(
+                LogicalPoint::new(24.0, 24.0),
+                LogicalConstraints::loose(LogicalSize::new(800.0, 600.0)),
+                Direction::Ltr,
+            ),
+        );
+        let bounds = frame.geometry.get(checkbox).unwrap().bounds;
+        let point = LogicalPoint::new(
+            bounds.origin.x + bounds.size.width * 0.5,
+            bounds.origin.y + bounds.size.height * 0.5,
+        );
+        assert_eq!(frame.geometry.hit_test(point), Some(checkbox));
+        let mut app = WidgetApp::new(tree, Direction::Ltr);
+        app.frame = Some(frame);
+        app.cursor = Some(point);
+        app.handle_pointer_press();
+        assert_eq!(app.focus.focused(), Some(checkbox));
+        assert!(matches!(
+            &app.tree.get(checkbox).unwrap().state,
+            Widget::Checkbox(widget) if widget.checked
+        ));
+        app.focus.clear();
+        app.handle_keyboard_event(KeyboardEvent::pressed(Key::Tab));
+        assert_eq!(app.focus.focused(), Some(input));
     }
 
     #[test]

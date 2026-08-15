@@ -22,7 +22,7 @@ No browser. No WebView. Windows, Linux, and macOS rendering through `wgpu`, with
 cargo run --example buttons
 ```
 
-A retained widget tree, direction-aware layout, theming, keyboard focus, and platform accessibility are all real and tested today. DaisyUI-vocabulary component *coverage* — the long list of named components — is where the framework is still thin.
+A retained widget tree, direction-aware layout, theming, keyboard focus, platform accessibility, and now the full DaisyUI-vocabulary component set — actions, data display, navigation, feedback, data input, and layout — are all real and tested today. Data-intensive application components (validated forms, data tables, virtualization) and a performance/reliability pass are what's still ahead.
 
 ---
 
@@ -77,13 +77,13 @@ Progress below is computed straight from the checkboxes in [`ROADMAP.md`](ROADMA
 | 4 | Widget tree, hit-testing, events | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 5 | Focus, keyboard, accessibility | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 6 | Theme & style system | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
-| 7 | Foundational widgets | ![54%](https://progress-bar.xyz/54/?width=120&color=e9540b) |
-| 8 | DaisyUI-vocabulary component coverage | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
+| 7 | Foundational widgets | ![98%](https://progress-bar.xyz/98/?width=120&color=2da44e) |
+| 8 | DaisyUI-vocabulary component coverage | ![100%](https://progress-bar.xyz/100/?width=120&color=2da44e) |
 | 9 | Data-intensive app components | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 10 | Performance & reliability | ![0%](https://progress-bar.xyz/0/?width=120&color=3a3f4b) |
 | 11 | Public API & distribution | ![25%](https://progress-bar.xyz/25/?width=120&color=e9540b) |
 
-Phases 2 through 6 are fully gated closed: bidi-correct shaping, direction-aware layout with structurally-equivalent LTR/RTL mirrors, a retained widget tree with hit-testing and pointer capture, keyboard focus and AccessKit-backed semantics, and a themed, contrast-checked style system are all implemented and tested. **Phase 7 (foundational widgets) is the active front** — text, image/icon, spacer, divider, container, row/column/stack/scroll view, and button already have real widgets, goldens, and examples; checkbox, radio, switch, slider, and every text-input-family widget are still in progress or unstarted.
+Phases 2 through 8 are effectively closed out: bidi-correct shaping, direction-aware layout with structurally-equivalent LTR/RTL mirrors, a retained widget tree with hit-testing and pointer capture, keyboard focus and AccessKit-backed semantics, a themed contrast-checked style system, every foundational widget (text through modal/drawer), and the complete DaisyUI-vocabulary component list are implemented, tested, and backed by examples. The one open Phase 7 item is manual screen-reader verification of the representative form in both directions. **Phase 9 (data-intensive application components) is the active front** — validated forms, searchable/editable data tables, master-detail layout, command palette, and virtualization are all unstarted.
 
 ## What's actually implemented right now
 
@@ -95,12 +95,19 @@ Phases 2 through 6 are fully gated closed: bidi-correct shaping, direction-aware
 - Keyboard focus and navigation — Tab and direction-aware arrow traversal, semantic activation/adjustment actions, translated from native `winit` input at the runtime boundary ([`src/focus.rs`](src/focus.rs), [`src/keyboard.rs`](src/keyboard.rs), [`src/winit_keyboard.rs`](src/winit_keyboard.rs))
 - Real platform accessibility via `accesskit`/`accesskit_winit` — semantic roles, states, and actions exposed to actual screen readers, plus reduced-motion/contrast/text-scale preferences read from the platform ([`src/accessibility.rs`](src/accessibility.rs), [`src/accesskit_adapter.rs`](src/accesskit_adapter.rs), [`src/preferences.rs`](src/preferences.rs), [`src/winit_preferences.rs`](src/winit_preferences.rs))
 - A token-based theme system — semantic color/spacing/radius/typography/elevation/motion tokens, light and dark modes with enforced minimum contrast, runtime theme switching, and resolved per-state (hover/active/focus/disabled/selected/error) component styles ([`src/theme.rs`](src/theme.rs), [`src/style.rs`](src/style.rs))
-- Widgets with real goldens and examples: `Text`, `Image`/`Icon`, `Spacer`/`Divider`, `Container`/`Surface`, `Row`/`Column`/`Stack`/`ScrollView`, `Button`/`IconButton`, plus in-progress `Checkbox` and `Radio` ([`src/widgets/`](src/widgets/), [`examples/`](examples/))
+- The full DaisyUI-vocabulary component set, each with a public backend-neutral model, LTR/RTL behavior, accessibility semantics, a theme/direction/scale promotion matrix, and a runnable example ([`src/widgets/`](src/widgets/), [`examples/`](examples/), [`docs/component-coverage.md`](docs/component-coverage.md)):
+  - **Foundational** — `Text`, `Image`/`Icon`, `Spacer`/`Divider`, `Container`/`Surface`, `Row`/`Column`/`Stack`/`ScrollView`, `Button`/`IconButton`, `Checkbox`, `Radio`, `Switch`, `Slider`, `TextInput`/`TextArea`/`SearchInput`, `Select`, `Dropdown`, `Menu`/`ContextMenu`, `Tooltip`, `Popover`, `Modal`, `Drawer`
+  - **Actions** — Dropdown, Modal, Swap, Theme controller
+  - **Data display** — Accordion/Collapse, Avatar, Badge, Card, Carousel, Chat bubble, Countdown, Diff, Kbd, Stat, Table, Timeline
+  - **Navigation** — Breadcrumbs, Dock, Link, Menu, Navbar, Pagination, Steps, Tabs
+  - **Feedback** — Alert, Loading indicator, Progress, Radial progress, Skeleton, Toast
+  - **Data input** — Calendar/Date input, Fieldset/label/validation message, File input, Filter, Range, Rating, Toggle
+  - **Layout** — Drawer, Footer, Hero, Indicator, List, Mask, Stack
 - A documented diagnostics path (`MIO_GUI_DIAGNOSTICS=1`) for surface lifecycle and presentation timing, used to debug real resize/maximize behavior across Ubuntu and macOS ([`docs/window-resize.md`](docs/window-resize.md), [`docs/errors-and-diagnostics.md`](docs/errors-and-diagnostics.md))
 
 ## Not yet — by design
 
-Switch, slider, every text-input-family widget, and the full DaisyUI-vocabulary component list (Phase 8) are **deliberately unstarted**. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component is only promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
+Data-intensive application components (Phase 9) — a validated form/form-section abstraction, a searchable and editable data table with sort/filter/pagination/row-selection, master-detail layout, an application sidebar, command palette, and large-list/large-table virtualization — are **deliberately unstarted**. So is the dedicated performance and reliability pass (Phase 10): frame-time and memory budgets, steady-state allocation elimination, device-loss/renderer-recovery testing, and reproducible regression benchmarks. The project principle is: concrete use cases pull features into scope, not the other way around ([`docs/decisions/0003-reference-scope.md`](docs/decisions/0003-reference-scope.md)). A component is only promoted to stable after it satisfies direction, keyboard, accessibility, theme, and visual-regression checks — not before.
 
 ## Tech stack
 
@@ -123,7 +130,7 @@ cd mio-gui
 cargo run --example buttons
 ```
 
-Other examples worth a look: `checkbox`, `radio`, `container_surface`, `layout_views`, `spacer_divider`, `image_icon`, `text_widget`, `text_shaping_report`, and the original `rounded_rectangle` primitive demo.
+Other examples worth a look: `representative_form` (the full keyboard/RTL/accessibility gate scenario), `accordion_carousel`, `avatar_card`, `badge_kbd`, `calendar_date_input`, `chat_diff`, `dock_navbar`, `dropdown`, `filter_file_input`, `menu`, `modal`, `pagination_steps_tabs`, `table_timeline`, `swap_theme`, `text_shaping_report`, and the original `rounded_rectangle` primitive demo.
 
 Run the test suite (unit tests, CPU-reference geometry tests, and GPU golden-image comparisons where an adapter is available):
 
