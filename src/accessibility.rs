@@ -29,6 +29,14 @@ pub enum SemanticRole {
     MenuItem,
     ListBoxOption,
     Dialog,
+    Alert,
+    Progress,
+    Group,
+    Timer,
+    Table,
+    Cell,
+    TabList,
+    Tab,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

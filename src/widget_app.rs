@@ -183,6 +183,7 @@ impl WidgetApp {
                 .as_ref()
                 .and_then(|frame| frame.geometry.get(focused))
                 .map(|node| node.bounds.size);
+            let mut theme_mode = None;
             let Some(node) = self.tree.get_mut(focused) else {
                 return;
             };
@@ -265,6 +266,63 @@ impl WidgetApp {
                     eprintln!("Mio-GUI activated {}", button.label());
                     Some(format!("{} activated", button.label()))
                 }
+                Widget::Swap(swap)
+                    if !event.repeat && matches!(event.key, Key::Space | Key::Enter) =>
+                {
+                    let changed = swap.activate();
+                    changed.then(|| format!("{}: {}", swap.label(), swap.content()))
+                }
+                Widget::ThemeSwitcher(switcher)
+                    if !event.repeat && matches!(event.key, Key::Space | Key::Enter) =>
+                {
+                    theme_mode = switcher.activate();
+                    theme_mode.map(|_| format!("{}: {}", switcher.label(), switcher.mode_label()))
+                }
+                Widget::Accordion(accordion)
+                    if !event.repeat && matches!(event.key, Key::Space | Key::Enter) =>
+                {
+                    accordion.activate().then(|| {
+                        format!(
+                            "{}: {}",
+                            accordion.label(),
+                            if accordion.open { "open" } else { "closed" }
+                        )
+                    })
+                }
+                Widget::Carousel(carousel) => carousel
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Carousel: {}", carousel.active_item())),
+                Widget::Link(link) if !event.repeat && event.key == Key::Enter => link
+                    .activate()
+                    .then(|| format!("{}: {}", link.label(), link.destination())),
+                Widget::Pagination(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Page {}", widget.selected_page())),
+                Widget::Steps(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Step: {}", widget.active_item())),
+                Widget::Tabs(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Tab: {}", widget.active_item())),
+                Widget::Dock(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Dock: {}", widget.active_item())),
+                Widget::Navbar(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Navigation: {}", widget.active_item())),
+                Widget::Rating(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("{}: {}", widget.label(), widget.value())),
+                Widget::Filter(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Filter option {}", widget.active_index() + 1)),
+                Widget::FileInput(widget)
+                    if !event.repeat && matches!(event.key, Key::Space | Key::Enter) =>
+                {
+                    widget
+                        .request_selection()
+                        .then(|| format!("{}: file selection requested", widget.label()))
+                }
                 Widget::Select(select) => {
                     let action = select.handle_key(&event);
                     (action != crate::SelectAction::None)
@@ -285,6 +343,12 @@ impl WidgetApp {
                         )
                     })
                 }
+                Widget::Calendar(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("{}: {}", widget.label(), widget.selected())),
+                Widget::DateInput(widget) => widget
+                    .handle_key(&event, self.direction)
+                    .then(|| format!("Date: {}", widget.selected())),
                 Widget::ContextMenu(menu) => {
                     menu.handle_key(&event);
                     None
@@ -303,6 +367,9 @@ impl WidgetApp {
                 }
                 _ => None,
             };
+            if let Some(mode) = theme_mode {
+                self.theme.set_mode(mode);
+            }
             if let Some(status) = status {
                 self.set_status(&status);
             }
@@ -326,6 +393,7 @@ impl WidgetApp {
             .find(|id| match &self.tree.get(*id).unwrap().state {
                 Widget::Modal(modal) => modal.open,
                 Widget::Drawer(drawer) => drawer.open,
+                Widget::Toast(toast) => toast.open,
                 _ => false,
             })
     }
@@ -354,6 +422,7 @@ impl WidgetApp {
             Widget::Popover(popover) => popover.dismiss() == crate::PopoverAction::Dismissed,
             Widget::Modal(modal) => modal.dismiss() == crate::ModalAction::Dismissed,
             Widget::Drawer(drawer) => drawer.dismiss() == crate::DrawerAction::Dismissed,
+            Widget::Toast(toast) => toast.dismiss() == crate::ToastAction::Dismissed,
             _ => false,
         }
     }
@@ -494,6 +563,28 @@ impl WidgetApp {
                 Widget::SearchInput(search) => search.input.focused = focused == Some(id),
                 Widget::Button(button) => button.style.state.focused = focused == Some(id),
                 Widget::IconButton(button) => button.style.state.focused = focused == Some(id),
+                Widget::Swap(swap) => swap.style.state.focused = focused == Some(id),
+                Widget::ThemeSwitcher(switcher) => {
+                    switcher.style.state.focused = focused == Some(id);
+                    switcher.mode = self.theme.mode();
+                }
+                Widget::Accordion(accordion) => accordion.style.state.focused = focused == Some(id),
+                Widget::Carousel(carousel) => carousel.style.state.focused = focused == Some(id),
+                Widget::Link(link) => link.style.state.focused = focused == Some(id),
+                Widget::Pagination(widget) => {
+                    widget.style_mut().state.focused = focused == Some(id)
+                }
+                Widget::Steps(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Tabs(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Dock(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Navbar(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Rating(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Filter(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::FileInput(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::Calendar(widget) => widget.style.state.focused = focused == Some(id),
+                Widget::DateInput(widget) => {
+                    widget.calendar.style.state.focused = focused == Some(id)
+                }
                 Widget::Select(select) if focused.is_some() && focused != Some(id) => {
                     select.open = false;
                 }
@@ -512,6 +603,7 @@ impl WidgetApp {
         ) {
             return self.tree.select_radio(target);
         }
+        let mut theme_mode = None;
         let Some(node) = self.tree.get_mut(target) else {
             return false;
         };
@@ -554,6 +646,111 @@ impl WidgetApp {
                 eprintln!("Mio-GUI activated {}", button.label());
                 (true, Some(format!("{} activated", button.label())))
             }
+            Widget::Swap(swap) => {
+                let activated = swap.activate();
+                (
+                    activated,
+                    activated.then(|| format!("{}: {}", swap.label(), swap.content())),
+                )
+            }
+            Widget::ThemeSwitcher(switcher) => {
+                theme_mode = switcher.activate();
+                (
+                    theme_mode.is_some(),
+                    theme_mode.map(|_| format!("{}: {}", switcher.label(), switcher.mode_label())),
+                )
+            }
+            Widget::Accordion(accordion) => {
+                let activated = accordion.activate();
+                (
+                    activated,
+                    activated.then(|| {
+                        format!(
+                            "{}: {}",
+                            accordion.label(),
+                            if accordion.open { "open" } else { "closed" }
+                        )
+                    }),
+                )
+            }
+            Widget::Carousel(carousel) => {
+                let activated = carousel.next_item();
+                (
+                    activated,
+                    activated.then(|| format!("Carousel: {}", carousel.active_item())),
+                )
+            }
+            Widget::Link(link) => {
+                let activated = link.activate();
+                (
+                    activated,
+                    activated.then(|| format!("{}: {}", link.label(), link.destination())),
+                )
+            }
+            Widget::Pagination(widget) => {
+                let activated = widget.next_page();
+                (
+                    activated,
+                    activated.then(|| format!("Page {}", widget.selected_page())),
+                )
+            }
+            Widget::Steps(widget) => {
+                let activated = widget.next_item();
+                (
+                    activated,
+                    activated.then(|| format!("Step: {}", widget.active_item())),
+                )
+            }
+            Widget::Tabs(widget) => {
+                let activated = widget.next_item();
+                (
+                    activated,
+                    activated.then(|| format!("Tab: {}", widget.active_item())),
+                )
+            }
+            Widget::Dock(widget) => {
+                let activated = widget.next_item();
+                (
+                    activated,
+                    activated.then(|| format!("Dock: {}", widget.active_item())),
+                )
+            }
+            Widget::Navbar(widget) => {
+                let activated = widget.next_item();
+                (
+                    activated,
+                    activated.then(|| format!("Navigation: {}", widget.active_item())),
+                )
+            }
+            Widget::Rating(widget) => {
+                let activated = widget.increment();
+                (
+                    activated,
+                    activated.then(|| format!("{}: {}", widget.label(), widget.value())),
+                )
+            }
+            Widget::Filter(widget) => {
+                let activated = widget.toggle_active();
+                (
+                    activated,
+                    activated
+                        .then(|| format!("Filter option {} toggled", widget.active_index() + 1)),
+                )
+            }
+            Widget::FileInput(widget) => {
+                let activated = widget.request_selection();
+                (
+                    activated,
+                    activated.then(|| format!("{}: file selection requested", widget.label())),
+                )
+            }
+            Widget::DateInput(widget) => {
+                let activated = widget.activate();
+                (
+                    activated,
+                    activated.then(|| format!("Date: {}", widget.selected())),
+                )
+            }
             Widget::Select(select) => {
                 let activated = select.handle_key(&crate::KeyboardEvent::pressed(Key::Space))
                     != crate::SelectAction::None;
@@ -572,6 +769,9 @@ impl WidgetApp {
             }
             _ => (false, None),
         };
+        if let Some(mode) = theme_mode {
+            self.theme.set_mode(mode);
+        }
         if let Some(status) = status {
             self.set_status(&status);
         }
@@ -914,6 +1114,42 @@ impl WidgetApp {
                         Some(slider.increment())
                     }
                     Widget::Slider(slider) => Some(slider.decrement()),
+                    Widget::Carousel(carousel) if request.action == SemanticAction::Increment => {
+                        Some(carousel.next_item())
+                    }
+                    Widget::Carousel(carousel) => Some(carousel.previous_item()),
+                    Widget::Pagination(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_page())
+                    }
+                    Widget::Pagination(widget) => Some(widget.previous_page()),
+                    Widget::Steps(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_item())
+                    }
+                    Widget::Steps(widget) => Some(widget.previous_item()),
+                    Widget::Tabs(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_item())
+                    }
+                    Widget::Tabs(widget) => Some(widget.previous_item()),
+                    Widget::Dock(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_item())
+                    }
+                    Widget::Dock(widget) => Some(widget.previous_item()),
+                    Widget::Navbar(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_item())
+                    }
+                    Widget::Navbar(widget) => Some(widget.previous_item()),
+                    Widget::Rating(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.increment())
+                    }
+                    Widget::Rating(widget) => Some(widget.decrement()),
+                    Widget::Filter(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_option())
+                    }
+                    Widget::Filter(widget) => Some(widget.previous_option()),
+                    Widget::Calendar(widget) if request.action == SemanticAction::Increment => {
+                        Some(widget.next_day())
+                    }
+                    Widget::Calendar(widget) => Some(widget.previous_day()),
                     _ => None,
                 })
                 .unwrap_or(false),
@@ -934,6 +1170,16 @@ impl WidgetApp {
                     ) => search.input.set_text(value),
                     (Widget::Slider(slider), Some(crate::SemanticActionValue::Number(value))) => {
                         slider.set_value(value as f32).unwrap_or(false)
+                    }
+                    (Widget::Rating(rating), Some(crate::SemanticActionValue::Number(value))) => {
+                        if value.is_finite() && value.fract() == 0.0 && value >= 0.0 {
+                            u8::try_from(value as u64)
+                                .ok()
+                                .and_then(|value| rating.set_value(value).ok())
+                                .unwrap_or(false)
+                        } else {
+                            false
+                        }
                     }
                     _ => false,
                 }
@@ -1308,6 +1554,36 @@ mod tests {
             unreachable!()
         };
         assert!(button.style.state.focused);
+    }
+
+    #[test]
+    fn swap_and_theme_switcher_share_runtime_activation_path() {
+        let mut tree = WidgetTree::new(Widget::from(Column::default()));
+        let root = tree.root();
+        let swap = tree
+            .append(
+                root,
+                Widget::from(crate::Swap::new("Playback", "Play", "Pause")),
+            )
+            .unwrap();
+        let switcher = tree
+            .append(root, Widget::from(crate::ThemeSwitcher::new("Theme")))
+            .unwrap();
+        let mut app = WidgetApp::new(tree, Direction::Ltr);
+
+        assert!(app.activate_target(swap));
+        let Widget::Swap(swap) = &app.tree.get(swap).unwrap().state else {
+            unreachable!()
+        };
+        assert!(swap.on);
+        assert_eq!(swap.content(), "Pause");
+
+        assert!(app.activate_target(switcher));
+        assert_eq!(app.theme.mode(), crate::ThemeMode::Light);
+        let Widget::ThemeSwitcher(switcher) = &app.tree.get(switcher).unwrap().state else {
+            unreachable!()
+        };
+        assert_eq!(switcher.mode, crate::ThemeMode::Light);
     }
 
     #[test]

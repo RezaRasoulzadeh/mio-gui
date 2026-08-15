@@ -162,9 +162,84 @@ fn fitted_size(intrinsic: LogicalSize, available: LogicalSize, fit: ImageFit) ->
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum MaskShape {
+    #[default]
+    Circle,
+    Rounded,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Mask {
+    image: Image,
+    pub shape: MaskShape,
+}
+
+impl Mask {
+    pub fn new(source: PixelImage, shape: MaskShape) -> Self {
+        let width = source.width();
+        let height = source.height();
+        let mut data = Vec::with_capacity(width as usize * height as usize * 4);
+        for y in 0..height {
+            for x in 0..width {
+                let pixel = y as usize * width as usize + x as usize;
+                let (red, green, blue, alpha) = match source.format() {
+                    crate::PixelFormat::Rgba8 => {
+                        let offset = pixel * 4;
+                        (
+                            source.data()[offset],
+                            source.data()[offset + 1],
+                            source.data()[offset + 2],
+                            source.data()[offset + 3],
+                        )
+                    }
+                    crate::PixelFormat::Alpha8 => (255, 255, 255, source.data()[pixel]),
+                };
+                let nx = (x as f32 + 0.5) / width as f32 * 2.0 - 1.0;
+                let ny = (y as f32 + 0.5) / height as f32 * 2.0 - 1.0;
+                let visible = match shape {
+                    MaskShape::Circle => nx * nx + ny * ny <= 1.0,
+                    MaskShape::Rounded => {
+                        let corner_x = (nx.abs() - 0.72).max(0.0);
+                        let corner_y = (ny.abs() - 0.72).max(0.0);
+                        corner_x * corner_x + corner_y * corner_y <= 0.2_f32.powi(2)
+                    }
+                };
+                data.extend([red, green, blue, if visible { alpha } else { 0 }]);
+            }
+        }
+        let source = PixelImage::new(width, height, crate::PixelFormat::Rgba8, data).unwrap();
+        Self {
+            image: Image::new(source),
+            shape,
+        }
+    }
+
+    pub fn with_alternative_text(mut self, text: impl Into<String>) -> Self {
+        self.image = self.image.with_alternative_text(text);
+        self
+    }
+
+    pub fn semantics(&self) -> Semantics {
+        self.image.semantics()
+    }
+
+    pub fn layout(
+        &self,
+        inherited_direction: Direction,
+        constraints: LogicalConstraints,
+    ) -> ImageLayout {
+        self.image.layout(inherited_direction, constraints)
+    }
+
+    pub fn draw(&self, layout: &ImageLayout, origin: LogicalPoint) -> ImageDraw {
+        layout.draw(self.image.source.clone(), origin)
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{BlockAlignment, Image, ImageAlignment, ImageFit};
+    use super::{BlockAlignment, Image, ImageAlignment, ImageFit, Mask, MaskShape};
     use crate::{
         Direction, LogicalConstraints, LogicalPoint, LogicalSize, PixelFormat, PixelImage,
     };
@@ -206,6 +281,18 @@ mod tests {
                 .size,
             LogicalSize::new(4.0, 2.0)
         );
+    }
+
+    #[test]
+    fn masks_clear_shape_corners_and_preserve_accessible_names() {
+        let source =
+            PixelImage::new(8, 8, crate::PixelFormat::Rgba8, vec![255; 8 * 8 * 4]).unwrap();
+        for shape in [MaskShape::Circle, MaskShape::Rounded] {
+            let mask = Mask::new(source.clone(), shape).with_alternative_text("Profile");
+            assert_eq!(mask.image.source.format(), crate::PixelFormat::Rgba8);
+            assert_eq!(mask.image.source.data()[3], 0);
+            assert_eq!(mask.semantics().name.as_deref(), Some("Profile"));
+        }
     }
 
     #[test]

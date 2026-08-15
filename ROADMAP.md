@@ -277,14 +277,14 @@ Every phase is gated. Do not start the next phase until the current phase's acce
 
 For every widget:
 
-- [ ] Define anatomy and public API
-- [ ] Define states and keyboard interaction
-- [ ] Verify complete keyboard-only operation
-- [ ] Define LTR and RTL behavior
-- [ ] Define accessibility semantics
-- [ ] Add unit and interaction tests
-- [ ] Add visual golden tests for states, themes, directions, and scale factors
-- [ ] Add a minimal example
+- [x] Define anatomy and public API
+- [x] Define states and keyboard interaction
+- [x] Verify complete keyboard-only operation
+- [x] Define LTR and RTL behavior
+- [x] Define accessibility semantics
+- [x] Add unit and interaction tests
+- [x] Add visual golden tests for states, themes, directions, and scale factors
+- [x] Add a minimal example
 
 ### Gate
 
@@ -301,76 +301,76 @@ For every widget:
 
 - [x] Button
 - [x] Dropdown
-- [ ] Modal
-- [ ] Swap
-- [ ] Theme controller
+- [x] Modal
+- [x] Swap
+- [x] Theme controller
 
 ### Data display
 
-- [ ] Accordion and collapse
-- [ ] Avatar
-- [ ] Badge
-- [ ] Card
-- [ ] Carousel
-- [ ] Chat bubble
-- [ ] Countdown
-- [ ] Diff
-- [ ] Kbd
-- [ ] Stat
-- [ ] Table
-- [ ] Timeline
+- [x] Accordion and collapse
+- [x] Avatar
+- [x] Badge
+- [x] Card
+- [x] Carousel
+- [x] Chat bubble
+- [x] Countdown
+- [x] Diff
+- [x] Kbd
+- [x] Stat
+- [x] Table
+- [x] Timeline
 
 ### Navigation
 
-- [ ] Breadcrumbs
-- [ ] Dock or bottom navigation
-- [ ] Link
-- [ ] Menu
-- [ ] Navbar
-- [ ] Pagination or join group
-- [ ] Steps
-- [ ] Tabs
+- [x] Breadcrumbs
+- [x] Dock or bottom navigation
+- [x] Link
+- [x] Menu
+- [x] Navbar
+- [x] Pagination or join group
+- [x] Steps
+- [x] Tabs
 
 ### Feedback
 
-- [ ] Alert
-- [ ] Loading indicator
-- [ ] Progress
-- [ ] Radial progress
-- [ ] Skeleton
-- [ ] Toast
-- [ ] Tooltip
+- [x] Alert
+- [x] Loading indicator
+- [x] Progress
+- [x] Radial progress
+- [x] Skeleton
+- [x] Toast
+- [x] Tooltip
 
 ### Data input
 
-- [ ] Calendar and date input
-- [ ] Checkbox
-- [ ] Fieldset, label, and validation message
-- [ ] File input
-- [ ] Filter
-- [ ] Radio
-- [ ] Range
-- [ ] Rating
-- [ ] Select
-- [ ] Text input and text area
-- [ ] Toggle
+- [x] Calendar and date input
+- [x] Checkbox
+- [x] Fieldset, label, and validation message
+- [x] File input
+- [x] Filter
+- [x] Radio
+- [x] Range
+- [x] Rating
+- [x] Select
+- [x] Text input and text area
+- [x] Toggle
 
 ### Layout
 
-- [ ] Divider
-- [ ] Drawer
-- [ ] Footer
-- [ ] Hero
-- [ ] Indicator
-- [ ] List
-- [ ] Mask
-- [ ] Stack
+- [x] Divider
+- [x] Drawer
+- [x] Footer
+- [x] Hero
+- [x] Indicator
+- [x] List
+- [x] Mask
+- [x] Stack
 
 ### Gate
 
-- [ ] Only components validated by concrete application use cases are promoted to stable
-- [ ] Stable components satisfy the common per-widget checklist
-- [ ] The gallery documents supported variants without claiming full DaisyUI API compatibility
+- [x] Only components validated by concrete application use cases are promoted to stable
+- [x] Stable components satisfy the common per-widget checklist
+- [x] The gallery documents supported variants without claiming full DaisyUI API compatibility
 
 ## Phase 9 — Data-intensive application components
 

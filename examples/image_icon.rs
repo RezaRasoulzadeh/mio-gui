@@ -1,9 +1,9 @@
 // image_icon.rs
 
 use mio_gui::{
-    Direction, Icon, Image, LogicalConstraints, LogicalPoint, LogicalSize, PixelFormat, PixelImage,
-    TextSystem, ThemeController, ThemeDefinition, UserPreferences, Widget, WidgetFrame,
-    WidgetPlacement, WidgetTree,
+    Direction, Icon, Image, LogicalConstraints, LogicalPoint, LogicalSize, Mask, MaskShape,
+    PixelFormat, PixelImage, TextSystem, ThemeController, ThemeDefinition, UserPreferences, Widget,
+    WidgetFrame, WidgetPlacement, WidgetTree,
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -24,6 +24,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     tree.append(
         tree.root(),
         Widget::from(icon.with_alternative_text("Open")),
+    )?;
+    let mask_source = PixelImage::new(8, 8, PixelFormat::Rgba8, vec![255; 8 * 8 * 4])?;
+    tree.append(
+        tree.root(),
+        Widget::from(Mask::new(mask_source, MaskShape::Circle).with_alternative_text("Profile")),
     )?;
 
     let theme =

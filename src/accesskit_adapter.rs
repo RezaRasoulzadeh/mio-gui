@@ -286,6 +286,14 @@ fn map_role(role: SemanticRole) -> Role {
         SemanticRole::MenuItem => Role::MenuItem,
         SemanticRole::ListBoxOption => Role::ListBoxOption,
         SemanticRole::Dialog => Role::Dialog,
+        SemanticRole::Alert => Role::Alert,
+        SemanticRole::Progress => Role::ProgressIndicator,
+        SemanticRole::Group => Role::Group,
+        SemanticRole::Timer => Role::Timer,
+        SemanticRole::Table => Role::Table,
+        SemanticRole::Cell => Role::Cell,
+        SemanticRole::TabList => Role::TabList,
+        SemanticRole::Tab => Role::Tab,
     }
 }
 
@@ -537,6 +545,17 @@ mod tests {
             map_role(SemanticRole::ListBoxOption),
             accesskit::Role::ListBoxOption
         );
+        assert_eq!(map_role(SemanticRole::Alert), accesskit::Role::Alert);
+        assert_eq!(
+            map_role(SemanticRole::Progress),
+            accesskit::Role::ProgressIndicator
+        );
+        assert_eq!(map_role(SemanticRole::Group), accesskit::Role::Group);
+        assert_eq!(map_role(SemanticRole::Timer), accesskit::Role::Timer);
+        assert_eq!(map_role(SemanticRole::Table), accesskit::Role::Table);
+        assert_eq!(map_role(SemanticRole::Cell), accesskit::Role::Cell);
+        assert_eq!(map_role(SemanticRole::TabList), accesskit::Role::TabList);
+        assert_eq!(map_role(SemanticRole::Tab), accesskit::Role::Tab);
     }
 
     #[test]
